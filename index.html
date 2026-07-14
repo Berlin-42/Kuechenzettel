@@ -425,6 +425,17 @@ const QUALIFIERS = [
 ];
 
 function stripAccentsKeepUmlaut(s){ return s; }
+
+/* HTML-Codes wie &auml; -> ä. Manche Seiten schreiben Umlaute so in ihre Rezeptdaten. */
+const _decEl = typeof document!=='undefined' ? document.createElement('textarea') : null;
+function decodeEntities(s){
+  if(!s || typeof s!=='string' || s.indexOf('&')<0) return s;
+  if(_decEl){ _decEl.innerHTML = s; return _decEl.value; }
+  return s.replace(/&auml;/g,'ä').replace(/&ouml;/g,'ö').replace(/&uuml;/g,'ü')
+          .replace(/&Auml;/g,'Ä').replace(/&Ouml;/g,'Ö').replace(/&Uuml;/g,'Ü')
+          .replace(/&szlig;/g,'ß').replace(/&amp;/g,'&').replace(/&nbsp;/g,' ')
+          .replace(/&#(\d+);/g,(m,n)=>String.fromCharCode(+n));
+}
 function normKey(s){
   let t = (s||'').toLowerCase().trim();
   t = t.replace(/\([^)]*\)/g,' ');            // Klammern raus
@@ -613,13 +624,13 @@ function extractRecipe(html, url){
     if(found){ rec=found; break; }
   }
   if(!rec) return null;
-  const ingLines = (rec.recipeIngredient||rec.ingredients||[]).map(textOf).filter(Boolean);
+  const ingLines = (rec.recipeIngredient||rec.ingredients||[]).map(textOf).map(decodeEntities).filter(Boolean);
   return {
-    title: textOf(rec.name) || doc.title || 'Ohne Titel',
+    title: decodeEntities(textOf(rec.name) || doc.title || 'Ohne Titel'),
     image: imgOf(rec.image),
     servings: yieldOf(rec.recipeYield),
     ingredients: ingLines.map(parseIngredient).filter(Boolean),
-    steps: stepsOf(rec.recipeInstructions),
+    steps: stepsOf(rec.recipeInstructions).map(decodeEntities),
     source: url,
     site: (()=>{ try{ return new URL(url).hostname.replace(/^www\./,''); }catch(e){ return ''; } })(),
     tags: []
@@ -1088,6 +1099,15 @@ $('#list').addEventListener('click', e=>{
 (async function boot(){
   await DB.open();
   RECIPES = await DB.all('recipes');
+  // Einmalige Reparatur: HTML-Codes (&auml; usw.) in bereits gespeicherten Rezepten säubern
+  for(const r of RECIPES){
+    let touched=false;
+    const dec=(v)=>{ const n=decodeEntities(v); if(n!==v) touched=true; return n; };
+    if(r.title) r.title=dec(r.title);
+    (r.ingredients||[]).forEach(i=>{ if(i.name)i.name=dec(i.name); if(i.note)i.note=dec(i.note); if(i.raw)i.raw=dec(i.raw); if(i.canon)i.canon=dec(i.canon); });
+    if(Array.isArray(r.steps)) r.steps=r.steps.map(dec);
+    if(touched) await DB.put('recipes', r);
+  }
   RECIPES.forEach(r=>{ if(!r.added) r.added=0; });
   RECIPES.sort((a,b)=>(b.added||0)-(a.added||0));
   const meta = await DB.all('meta');
