@@ -1,0 +1,17 @@
+{
+  "name": "Küchenzettel",
+  "short_name": "Küchenzettel",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#F7F6F1",
+  "theme_color": "#0F3F3E",
+  "icons": [
+    {
+      "src": "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 512 512'%3E%3Crect width='512' height='512' rx='112' fill='%230F3F3E'/%3E%3Crect x='150' y='120' width='26' height='272' rx='13' fill='%23E8A317'/%3E%3Crect x='236' y='120' width='26' height='140' rx='13' fill='%23F7F6F1'/%3E%3Crect x='300' y='120' width='26' height='140' rx='13' fill='%23F7F6F1'/%3E%3Crect x='236' y='260' width='90' height='26' rx='13' fill='%23F7F6F1'/%3E%3Crect x='268' y='286' width='26' height='106' rx='13' fill='%23F7F6F1'/%3E%3C/svg%3E",
+      "sizes": "512x512",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
