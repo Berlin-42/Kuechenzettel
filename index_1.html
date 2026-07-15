@@ -1,0 +1,1317 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="theme-color" content="#0F3F3E">
+<link rel="manifest" href="manifest.json">
+<title>Küchenzettel</title>
+<style>
+  :root{
+    --ink:#14181A;
+    --paper:#F7F6F1;
+    --surface:#FFFFFF;
+    --line:#E2E0D8;
+    --line-soft:#EDEBE4;
+    --muted:#71736E;
+    --muted-2:#9A9B95;
+    --deep:#0F3F3E;      /* Emaille-Petrol: Navigation, Marke */
+    --deep-soft:#E6EDEC;
+    --signal:#E8A317;    /* Mengen, aktive Zustände */
+    --signal-ink:#8A6A0C;
+    --warn:#B3402A;
+    --radius:16px;
+    --radius-sm:11px;
+    --pad:16px;
+    --shadow:0 1px 2px rgba(20,24,26,.03), 0 6px 18px rgba(20,24,26,.05);
+    --shadow-lift:0 2px 6px rgba(20,24,26,.06), 0 12px 30px rgba(20,24,26,.09);
+    --safe-b: env(safe-area-inset-bottom, 0px);
+    --font: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+    --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  }
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html,body{margin:0;padding:0}
+  body{
+    background:var(--paper); color:var(--ink); font-family:var(--font);
+    font-size:16px; line-height:1.45;
+    padding-bottom:calc(64px + var(--safe-b));
+    -webkit-text-size-adjust:100%;
+    text-rendering:optimizeLegibility;-webkit-font-smoothing:antialiased;
+  }
+  button,input,textarea,select{font:inherit;color:inherit}
+  button{cursor:pointer;border:none;background:none}
+  a{color:var(--deep)}
+
+  /* ---------- Kopf ---------- */
+  header{
+    position:sticky; top:0; z-index:20; background:rgba(247,246,241,.86);
+    backdrop-filter:saturate(1.4) blur(12px);-webkit-backdrop-filter:saturate(1.4) blur(12px);
+    padding:calc(env(safe-area-inset-top,0px) + 14px) var(--pad) 8px;
+    border-bottom:1px solid var(--line);
+  }
+  .brand{display:flex;align-items:baseline;gap:8px}
+  .brand h1{
+    margin:0;font-size:21px;letter-spacing:-.025em;font-weight:640;
+  }
+  .brand .count{font-family:var(--mono);font-size:12px;color:var(--muted-2)}
+  .searchrow{display:flex;gap:8px;margin-top:11px}
+  input[type=search],input[type=text],input[type=url],textarea{
+    width:100%;background:var(--surface);border:1px solid var(--line);
+    border-radius:12px;padding:12px 13px;outline:none;
+    transition:border-color .15s, box-shadow .15s;
+  }
+  input:focus,textarea:focus{border-color:var(--deep);box-shadow:0 0 0 3px rgba(15,63,62,.12)}
+  .chips{display:flex;gap:7px;overflow-x:auto;padding:12px 0 3px;scrollbar-width:none}
+  .chips::-webkit-scrollbar{display:none}
+  .chip{
+    white-space:nowrap;border:1px solid var(--line);background:var(--surface);
+    border-radius:999px;padding:7px 13px;font-size:13px;color:var(--muted);
+    transition:transform .12s;
+  }
+  .chip:active{transform:scale(.95)}
+  .chip.on{background:var(--deep);border-color:var(--deep);color:#fff;font-weight:600}
+  .chip.season{border-color:#C0DD97;color:#3B6D11;font-weight:560}
+  .chip.season.on{background:#3B6D11;border-color:#3B6D11;color:#fff}
+
+  /* ---------- Liste ---------- */
+  main{padding:var(--pad)}
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:13px}
+  @media(max-width:380px){.grid{grid-template-columns:1fr}}
+  .card{
+    background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);
+    overflow:hidden;display:flex;flex-direction:column;text-align:left;
+    box-shadow:var(--shadow);transition:transform .13s, box-shadow .13s;
+  }
+  .card:active{transform:scale(.975);box-shadow:var(--shadow-lift)}
+  .card .thumb{width:100%;aspect-ratio:4/3;object-fit:cover;background:#EDEBE4;display:block}
+  .card .body{padding:11px 12px 13px}
+  .card h3{margin:0 0 5px;font-size:15px;line-height:1.25;letter-spacing:-.015em;font-weight:560}
+  .card .meta{font-family:var(--mono);font-size:11px;color:var(--muted-2);letter-spacing:-.01em}
+  .card .ctag{display:inline-block;margin-top:7px;font-size:10px;padding:3px 9px;border-radius:999px;font-weight:500;letter-spacing:-.01em}
+  .empty{
+    border:1px dashed var(--line);border-radius:var(--radius);padding:34px 22px;
+    text-align:center;color:var(--muted)
+  }
+  .empty b{display:block;color:var(--ink);margin-bottom:6px;font-weight:560}
+
+  /* ---------- Tabs ---------- */
+  nav.tabs{
+    position:fixed;bottom:0;left:0;right:0;z-index:30;display:flex;
+    background:var(--deep);padding-bottom:var(--safe-b);
+    box-shadow:0 -4px 20px rgba(15,63,62,.14);
+  }
+  nav.tabs button{
+    flex:1;color:rgba(255,255,255,.6);padding:11px 4px 12px;font-size:11px;
+    display:flex;flex-direction:column;align-items:center;gap:3px;font-weight:500;
+    transition:color .15s;
+  }
+  nav.tabs button .ic{font-size:17px;line-height:1;transition:transform .12s}
+  nav.tabs button:active .ic{transform:scale(.85)}
+  nav.tabs button.on{color:#fff}
+  nav.tabs button.on .ic{color:var(--signal)}
+
+  /* ---------- Vollbild-Ansichten ---------- */
+  .screen{
+    position:fixed;inset:0;z-index:40;background:var(--paper);overflow-y:auto;
+    -webkit-overflow-scrolling:touch;
+  }
+  .screen.hide{display:none}
+  .sheetbar{
+    position:sticky;top:0;z-index:5;display:flex;align-items:center;gap:10px;
+    background:rgba(247,246,241,.86);backdrop-filter:saturate(1.4) blur(12px);-webkit-backdrop-filter:saturate(1.4) blur(12px);
+    border-bottom:1px solid var(--line);
+    padding:calc(env(safe-area-inset-top,0px) + 10px) 12px 10px;
+  }
+  .sheetbar .title{font-weight:600;font-size:16px;flex:1;letter-spacing:-.015em}
+  .iconbtn{padding:8px 12px;border-radius:10px;border:1px solid var(--line);background:var(--surface);font-size:14px;transition:transform .12s}
+  .iconbtn:active{transform:scale(.94)}
+
+  .hero{width:100%;aspect-ratio:16/10;object-fit:cover;background:#EDEBE4;display:block}
+  .rbody{padding:var(--pad);padding-bottom:180px}
+  .rbody h2{margin:4px 0 7px;font-size:25px;line-height:1.16;letter-spacing:-.025em;font-weight:640}
+  .source{font-size:13px;color:var(--muted);word-break:break-all}
+  .tagrow{display:flex;flex-wrap:wrap;gap:6px;margin:13px 0 4px}
+  .tag{background:#EFEEE7;border-radius:8px;padding:4px 10px;font-size:12px;color:#4A4C48}
+
+  h4.sec{
+    font-size:12px;text-transform:uppercase;letter-spacing:.1em;color:var(--muted-2);
+    margin:26px 0 10px;padding-bottom:7px;border-bottom:1px solid var(--line);font-weight:600;
+  }
+  ul.ing{list-style:none;margin:0;padding:0}
+  ul.ing li{
+    display:flex;gap:12px;align-items:baseline;padding:10px 0;border-bottom:1px solid var(--line-soft);
+  }
+  ul.ing li:last-child{border-bottom:none}
+  .qty{
+    font-family:var(--mono);font-variant-numeric:tabular-nums;font-size:15px;font-weight:600;
+    min-width:80px;text-align:right;flex:none;color:var(--deep);
+  }
+  .qty.scaled{color:var(--signal-ink)}
+  .approx{color:var(--signal);font-weight:700}
+  .iname{flex:1}
+  .inote{color:var(--muted);font-size:13px}
+  ol.steps{margin:0;padding:0;list-style:none;counter-reset:s}
+  ol.steps li{
+    counter-increment:s;display:flex;gap:13px;padding:12px 0;border-bottom:1px solid var(--line-soft);
+  }
+  ol.steps li:last-child{border-bottom:none}
+  ol.steps li::before{
+    content:counter(s);font-family:var(--mono);font-size:12px;font-weight:700;color:var(--deep);
+    background:var(--deep-soft);border-radius:8px;min-width:25px;height:25px;display:flex;
+    align-items:center;justify-content:center;flex:none;margin-top:1px;
+  }
+
+  /* ---------- Signatur: Mengen-Leiste ---------- */
+  .scaler{
+    position:fixed;left:0;right:0;bottom:0;z-index:45;
+    background:rgba(255,255,255,.92);backdrop-filter:saturate(1.4) blur(14px);-webkit-backdrop-filter:saturate(1.4) blur(14px);
+    border-top:1px solid var(--line);
+    box-shadow:0 -6px 24px rgba(20,24,26,.08);
+    padding:13px var(--pad) calc(13px + var(--safe-b));
+  }
+  .scaler .row{display:flex;align-items:center;gap:12px}
+  .stepper{display:flex;align-items:center;gap:2px;background:var(--paper);border:1px solid var(--line);border-radius:13px;padding:3px}
+  .stepper button{width:42px;height:40px;font-size:21px;font-weight:600;border-radius:10px;color:var(--deep);transition:background .12s}
+  .stepper button:active{background:var(--deep-soft)}
+  .stepper .val{
+    font-family:var(--mono);font-variant-numeric:tabular-nums;font-weight:700;font-size:17px;
+    min-width:34px;text-align:center;
+  }
+  .scaler .lbl{font-size:12px;color:var(--muted);line-height:1.3}
+  .scaler .lbl b{display:block;color:var(--ink);font-size:13px;font-weight:560}
+  .cookbtn{
+    margin-left:auto;background:var(--deep);color:#fff;font-weight:600;font-size:14px;
+    padding:13px 17px;border-radius:13px;transition:transform .12s;
+  }
+  .cookbtn:active{transform:scale(.96)}
+  .hint{
+    margin-top:10px;font-size:12px;color:var(--signal-ink);background:#FDF4E0;border-radius:10px;
+    padding:8px 11px;display:none;
+  }
+  .hint.on{display:block}
+
+  /* ---------- Kochmodus ---------- */
+  #cook{background:#0D1113;color:#F2F1EC}
+  #cook .sheetbar{background:#0D1113;border-color:#22282A}
+  #cook .iconbtn{background:#1A2022;border-color:#2B3234;color:#F2F1EC}
+  .cookwrap{padding:20px var(--pad) 40px}
+  .cookstep{font-size:24px;line-height:1.45;letter-spacing:-.01em;min-height:32vh}
+  .cookcount{font-family:var(--mono);font-size:12px;color:#8FA09B;letter-spacing:.08em;margin-bottom:14px}
+  .cooking-ing{border-top:1px solid #22282A;margin-top:26px;padding-top:14px}
+  .cooking-ing label{display:flex;gap:11px;align-items:baseline;padding:9px 0;font-size:16px}
+  .cooking-ing input{accent-color:var(--signal);width:20px;height:20px;flex:none}
+  .cooking-ing .qty{color:#F2CF7E;min-width:74px}
+  .cooknav{
+    position:fixed;bottom:0;left:0;right:0;display:flex;gap:10px;padding:12px var(--pad) calc(12px + var(--safe-b));
+    background:#0D1113;border-top:1px solid #22282A;
+  }
+  .cooknav button{flex:1;padding:15px;border-radius:12px;font-weight:650;font-size:15px}
+  .cooknav .prev{background:#1A2022;color:#F2F1EC}
+  .cooknav .next{background:var(--signal);color:#231A03}
+
+  /* ---------- Formulare / Import ---------- */
+  .form{padding:var(--pad);padding-bottom:60px}
+  .field{margin-bottom:15px}
+  .field label{display:block;font-size:12px;font-weight:600;color:var(--muted);margin-bottom:6px;
+    text-transform:uppercase;letter-spacing:.07em}
+  .btn{
+    background:var(--deep);color:#fff;font-weight:600;padding:14px 16px;border-radius:13px;width:100%;
+    font-size:15px;transition:transform .12s;
+  }
+  .btn:active{transform:scale(.98)}
+  .btn.ghost{background:var(--surface);color:var(--ink);border:1px solid var(--line)}
+  .btn.warn{background:var(--warn)}
+  .btn:disabled{opacity:.5}
+  .btnrow{display:flex;gap:10px;margin-top:9px}
+  .note{font-size:13px;color:var(--muted);margin-top:9px;line-height:1.55}
+  .status{
+    margin-top:13px;padding:12px 13px;border-radius:12px;font-size:14px;display:none;
+    border:1px solid var(--line);background:var(--surface);
+  }
+  .status.on{display:block}
+  .status.err{border-color:#E3BDB3;background:#FBEDE9;color:#8C2F1B}
+  .status.ok{border-color:#BEDACB;background:#EAF6EF;color:#1E5C3C}
+  .spin{display:inline-block;width:13px;height:13px;border:2px solid var(--line);
+    border-top-color:var(--deep);border-radius:50%;animation:sp .7s linear infinite;vertical-align:-2px;margin-right:6px}
+  @keyframes sp{to{transform:rotate(360deg)}}
+  @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+
+  /* Zutaten-Editor */
+  .ingedit{background:var(--surface);border:1px solid var(--line);border-radius:13px;padding:11px;margin-bottom:9px;box-shadow:var(--shadow)}
+  .ingedit .top{display:flex;gap:6px}
+  .ingedit .top input{padding:9px;font-size:14px;border-radius:9px}
+  .ingedit .amt{width:74px;font-family:var(--mono);flex:none}
+  .ingedit .unit{width:82px;flex:none}
+  .ingedit .bot{display:flex;align-items:center;gap:8px;margin-top:8px}
+  .canon{
+    font-size:12px;font-family:var(--mono);background:var(--deep-soft);color:var(--deep);
+    border-radius:8px;padding:5px 9px;border:1px solid #CDDBD9;
+  }
+  .canon.unknown{background:#FDF4E0;color:var(--signal-ink);border-color:#EFD9A4}
+  .del{margin-left:auto;color:var(--warn);font-size:13px;padding:4px 8px}
+
+  /* Einkaufsliste */
+  .pick{display:flex;align-items:center;gap:11px;background:var(--surface);border:1px solid var(--line);
+    border-radius:13px;padding:12px;margin-bottom:9px;box-shadow:var(--shadow)}
+  .pick input{width:21px;height:21px;accent-color:var(--deep);flex:none}
+  .pick .nm{flex:1;font-size:15px}
+  .pick .pp{font-family:var(--mono);font-size:12px;color:var(--muted);display:flex;align-items:center;gap:2px}
+  pre.shop{
+    background:var(--surface);border:1px solid var(--line);border-radius:13px;padding:14px;
+    font-family:var(--mono);font-size:13px;white-space:pre-wrap;word-break:break-word;margin:0;
+    line-height:1.7;box-shadow:var(--shadow);
+  }
+  .toast{
+    position:fixed;left:50%;transform:translateX(-50%);bottom:calc(78px + var(--safe-b));z-index:99;
+    background:var(--ink);color:#fff;padding:12px 17px;border-radius:12px;font-size:14px;
+    box-shadow:var(--shadow-lift);
+    opacity:0;pointer-events:none;transition:opacity .2s;
+  }
+  .toast.on{opacity:1}
+</style>
+</head>
+<body>
+
+<header id="head">
+  <div class="brand"><h1>Küchenzettel</h1><span class="count" id="hcount"></span></div>
+  <div class="searchrow"><input type="search" id="q" placeholder="Rezept oder Zutat suchen…" autocomplete="off"></div>
+  <div class="chips" id="tagchips"></div>
+</header>
+
+<main id="list"></main>
+
+<nav class="tabs">
+  <button data-tab="list" class="on"><span class="ic">▤</span>Rezepte</button>
+  <button data-tab="import"><span class="ic">＋</span>Hinzufügen</button>
+  <button data-tab="shop"><span class="ic">✓</span>Einkauf</button>
+  <button data-tab="settings"><span class="ic">⚙</span>Daten</button>
+</nav>
+
+<!-- Rezeptansicht -->
+<section class="screen hide" id="detail"></section>
+<!-- Kochmodus -->
+<section class="screen hide" id="cook"></section>
+<!-- Editor -->
+<section class="screen hide" id="editor"></section>
+
+<div class="toast" id="toast"></div>
+
+<script>
+/* =========================================================================
+   Küchenzettel — private Rezept-App. Alles läuft im Browser, offline.
+   ========================================================================= */
+const APP_VERSION = 'v1.6 · Tags einheitlich · 15.07.2026';
+
+/* ---------- 1. Speicher (IndexedDB, mit Notfall-Fallback) ---------- */
+const DB = (() => {
+  let db=null, mem={recipes:[], meta:[]}, useMem=false;
+  function open(){
+    return new Promise(res=>{
+      if(!('indexedDB' in window)){useMem=true;return res();}
+      let rq;
+      try{ rq = indexedDB.open('kuechenzettel',1); }catch(e){ useMem=true; return res(); }
+      rq.onupgradeneeded = e=>{
+        const d=e.target.result;
+        if(!d.objectStoreNames.contains('recipes')) d.createObjectStore('recipes',{keyPath:'id'});
+        if(!d.objectStoreNames.contains('meta')) d.createObjectStore('meta',{keyPath:'k'});
+      };
+      rq.onsuccess = e=>{db=e.target.result;res();};
+      rq.onerror = ()=>{useMem=true;res();};
+      setTimeout(()=>{ if(!db&&!useMem){useMem=true;res();} },3000);
+    });
+  }
+  const tx=(store,mode)=>db.transaction(store,mode).objectStore(store);
+  async function all(store){
+    if(useMem) return [...mem[store]];
+    return new Promise((res,rej)=>{const r=tx(store,'readonly').getAll();r.onsuccess=()=>res(r.result);r.onerror=rej;});
+  }
+  async function put(store,val){
+    if(useMem){
+      const key = store==='recipes'?'id':'k';
+      const i=mem[store].findIndex(x=>x[key]===val[key]);
+      i>=0?mem[store][i]=val:mem[store].push(val);
+      return;
+    }
+    return new Promise((res,rej)=>{const r=tx(store,'readwrite').put(val);r.onsuccess=res;r.onerror=rej;});
+  }
+  async function del(store,key){
+    if(useMem){const k=store==='recipes'?'id':'k';mem[store]=mem[store].filter(x=>x[k]!==key);return;}
+    return new Promise((res,rej)=>{const r=tx(store,'readwrite').delete(key);r.onsuccess=res;r.onerror=rej;});
+  }
+  return {open,all,put,del,isMem:()=>useMem};
+})();
+
+/* ---------- 2. Einheiten ---------- */
+// type: 'g' Gewicht | 'ml' Volumen | 'spoon' Löffel/Prise (bleibt lesbar, wird nicht gerundet)
+//       'count' Stück/Bund/Dose (wird beim Skalieren gerundet)
+const UNITS = {
+  // Gewicht -> g
+  'g':['g',1],'gr':['g',1],'gramm':['g',1],'kg':['g',1000],'kilo':['g',1000],'kilogramm':['g',1000],
+  'pfund':['g',500],'mg':['g',0.001],
+  // Volumen -> ml
+  'ml':['ml',1],'milliliter':['ml',1],'cl':['ml',10],'dl':['ml',100],'l':['ml',1000],'liter':['ml',1000],
+  'tasse':['ml',240],'tassen':['ml',240],'cup':['ml',240],'cups':['ml',240],
+  // Löffelmaße bleiben Löffelmaße — „3,3 ml Salz“ hilft am Herd niemandem
+  'el':['spoon',1,'EL'],'esslöffel':['spoon',1,'EL'],'essloeffel':['spoon',1,'EL'],'eßlöffel':['spoon',1,'EL'],
+  'tl':['spoon',1,'TL'],'teelöffel':['spoon',1,'TL'],'teeloeffel':['spoon',1,'TL'],
+  'msp':['spoon',1,'Msp.'],'messerspitze':['spoon',1,'Msp.'],
+  'prise':['spoon',1,'Prise'],'prisen':['spoon',1,'Prise'],
+  'schuss':['spoon',1,'Schuss'],'spritzer':['spoon',1,'Spritzer'],'tropfen':['spoon',1,'Tropfen'],
+  // Stück & Co -> wird beim Skalieren gerundet
+  'stück':['count',1],'stueck':['count',1],'stk':['count',1],'st':['count',1],
+  'bund':['count',1],'zehe':['count',1],'zehen':['count',1],
+  'scheibe':['count',1],'scheiben':['count',1],
+  'dose':['count',1],'dosen':['count',1],'glas':['count',1],'gläser':['count',1],
+  'packung':['count',1],'packungen':['count',1],'päckchen':['count',1],'paeckchen':['count',1],
+  'beutel':['count',1],'becher':['count',1],'kopf':['count',1],'köpfe':['count',1],
+  'stange':['count',1],'stangen':['count',1],'zweig':['count',1],'zweige':['count',1],
+  'blatt':['count',1],'blätter':['count',1],'handvoll':['count',1],
+  'knolle':['count',1],'knollen':['count',1],'würfel':['count',1],
+  'kugel':['count',1],'kugeln':['count',1],'tafel':['count',1],'rispe':['count',1]
+};
+
+/* ---------- 3. Kanonische Zutaten (Tomate bleibt Tomate) ---------- */
+const SYN = {
+  // Gemüse
+  'tomate':'Tomate','tomaten':'Tomate','cherrytomate':'Tomate','cherrytomaten':'Tomate',
+  'kirschtomaten':'Tomate','strauchtomaten':'Tomate','datteltomaten':'Tomate','rispentomaten':'Tomate',
+  'fleischtomaten':'Tomate','cocktailtomaten':'Tomate','tomatenmark':'Tomatenmark',
+  'passierte tomaten':'Passierte Tomaten','gehackte tomaten':'Gehackte Tomaten','dosentomaten':'Gehackte Tomaten',
+  'zwiebel':'Zwiebel','zwiebeln':'Zwiebel','gemüsezwiebel':'Zwiebel','rote zwiebel':'Zwiebel','rote zwiebeln':'Zwiebel',
+  'schalotte':'Schalotte','schalotten':'Schalotte','frühlingszwiebel':'Frühlingszwiebel','frühlingszwiebeln':'Frühlingszwiebel',
+  'lauchzwiebeln':'Frühlingszwiebel','knoblauch':'Knoblauch','knoblauchzehe':'Knoblauch','knoblauchzehen':'Knoblauch',
+  'karotte':'Karotte','karotten':'Karotte','möhre':'Karotte','möhren':'Karotte','mohrrübe':'Karotte',
+  'kartoffel':'Kartoffel','kartoffeln':'Kartoffel','süßkartoffel':'Süßkartoffel','süßkartoffeln':'Süßkartoffel',
+  'paprika':'Paprika','paprikaschote':'Paprika','paprikaschoten':'Paprika','spitzpaprika':'Paprika',
+  'zucchini':'Zucchini','aubergine':'Aubergine','auberginen':'Aubergine',
+  'brokkoli':'Brokkoli','broccoli':'Brokkoli','blumenkohl':'Blumenkohl','rosenkohl':'Rosenkohl',
+  'spinat':'Spinat','blattspinat':'Spinat','babyspinat':'Spinat',
+  'pilze':'Champignon','champignons':'Champignon','champignon':'Champignon','egerlinge':'Champignon',
+  'gurke':'Gurke','gurken':'Gurke','salatgurke':'Gurke','lauch':'Lauch','porree':'Lauch',
+  'sellerie':'Sellerie','staudensellerie':'Sellerie','knollensellerie':'Sellerie',
+  'kürbis':'Kürbis','hokkaido':'Kürbis','erbsen':'Erbsen','tiefkühlerbsen':'Erbsen','mais':'Mais',
+  'bohnen':'Bohnen','kidneybohnen':'Kidneybohnen','kichererbsen':'Kichererbsen','linsen':'Linsen',
+  'rote linsen':'Linsen','belugalinsen':'Linsen','salat':'Salat','kopfsalat':'Salat','rucola':'Rucola',
+  'fenchel':'Fenchel','ingwer':'Ingwer','chili':'Chili','chilischote':'Chili','chilischoten':'Chili',
+  'peperoni':'Chili','radieschen':'Radieschen','rote bete':'Rote Bete','avocado':'Avocado','avocados':'Avocado',
+  'oliven':'Oliven','kohlrabi':'Kohlrabi','weißkohl':'Weißkohl','rotkohl':'Rotkohl','spitzkohl':'Spitzkohl',
+  // Kräuter & Gewürze
+  'petersilie':'Petersilie','glatte petersilie':'Petersilie','basilikum':'Basilikum','thymian':'Thymian',
+  'rosmarin':'Rosmarin','oregano':'Oregano','koriander':'Koriander','dill':'Dill','schnittlauch':'Schnittlauch',
+  'minze':'Minze','salbei':'Salbei','lorbeerblatt':'Lorbeer','lorbeerblätter':'Lorbeer','lorbeer':'Lorbeer',
+  'salz':'Salz','meersalz':'Salz','pfeffer':'Pfeffer','schwarzer pfeffer':'Pfeffer','paprikapulver':'Paprikapulver',
+  'kreuzkümmel':'Kreuzkümmel','kumin':'Kreuzkümmel','curry':'Currypulver','currypulver':'Currypulver',
+  'zimt':'Zimt','muskat':'Muskat','muskatnuss':'Muskat','kurkuma':'Kurkuma','safran':'Safran',
+  'chiliflocken':'Chiliflocken','vanille':'Vanille','vanillezucker':'Vanillezucker',
+  // Grundzutaten
+  'mehl':'Mehl','weizenmehl':'Mehl','dinkelmehl':'Dinkelmehl','vollkornmehl':'Vollkornmehl',
+  'zucker':'Zucker','rohrzucker':'Zucker','puderzucker':'Puderzucker','brauner zucker':'Brauner Zucker',
+  'honig':'Honig','ahornsirup':'Ahornsirup','ei':'Ei','eier':'Ei','eigelb':'Eigelb','eiweiß':'Eiweiß',
+  'butter':'Butter','margarine':'Margarine','öl':'Öl','olivenöl':'Olivenöl','rapsöl':'Rapsöl',
+  'sonnenblumenöl':'Sonnenblumenöl','sesamöl':'Sesamöl',
+  'milch':'Milch','vollmilch':'Milch','hafermilch':'Hafermilch','sahne':'Sahne','schlagsahne':'Sahne',
+  'schmand':'Schmand','crème fraîche':'Crème fraîche','creme fraiche':'Crème fraîche','saure sahne':'Saure Sahne',
+  'joghurt':'Joghurt','naturjoghurt':'Joghurt','griechischer joghurt':'Joghurt','quark':'Quark',
+  'frischkäse':'Frischkäse','käse':'Käse','parmesan':'Parmesan','mozzarella':'Mozzarella','feta':'Feta',
+  'gouda':'Gouda','cheddar':'Cheddar','reibekäse':'Reibekäse',
+  'hefe':'Hefe','trockenhefe':'Hefe','frische hefe':'Hefe','backpulver':'Backpulver','natron':'Natron',
+  'speisestärke':'Speisestärke','stärke':'Speisestärke','semmelbrösel':'Semmelbrösel','paniermehl':'Semmelbrösel',
+  // Kohlenhydrate
+  'nudeln':'Nudeln','pasta':'Nudeln','spaghetti':'Spaghetti','penne':'Penne','tagliatelle':'Tagliatelle',
+  'reis':'Reis','basmatireis':'Reis','risottoreis':'Risottoreis','couscous':'Couscous','bulgur':'Bulgur',
+  'quinoa':'Quinoa','brot':'Brot','baguette':'Baguette','toast':'Toast','tortilla':'Tortilla',
+  'haferflocken':'Haferflocken','polenta':'Polenta','gnocchi':'Gnocchi',
+  // Fleisch & Fisch
+  'hähnchenbrust':'Hähnchenbrust','hähnchenbrustfilet':'Hähnchenbrust','hühnerbrust':'Hähnchenbrust',
+  'hähnchen':'Hähnchen','hühnchen':'Hähnchen','hackfleisch':'Hackfleisch','rinderhack':'Hackfleisch',
+  'gemischtes hackfleisch':'Hackfleisch','rindfleisch':'Rindfleisch','schweinefleisch':'Schweinefleisch',
+  'speck':'Speck','bacon':'Speck','schinken':'Schinken','pancetta':'Pancetta','chorizo':'Chorizo',
+  'lachs':'Lachs','lachsfilet':'Lachs','thunfisch':'Thunfisch','garnelen':'Garnelen','shrimps':'Garnelen',
+  // Sonstiges
+  'brühe':'Brühe','gemüsebrühe':'Gemüsebrühe','hühnerbrühe':'Hühnerbrühe','rinderbrühe':'Rinderbrühe',
+  'wasser':'Wasser','wein':'Weißwein','weißwein':'Weißwein','rotwein':'Rotwein',
+  'zitrone':'Zitrone','zitronen':'Zitrone','zitronensaft':'Zitronensaft','limette':'Limette','limetten':'Limette',
+  'orange':'Orange','apfel':'Apfel','äpfel':'Apfel','banane':'Banane','bananen':'Banane',
+  'spargel':'Spargel','erdbeere':'Erdbeere','erdbeeren':'Erdbeere','rhabarber':'Rhabarber',
+  'birne':'Birne','birnen':'Birne','kirsche':'Kirsche','kirschen':'Kirsche',
+  'pflaume':'Pflaume','pflaumen':'Pflaume','zwetschge':'Pflaume','zwetschgen':'Pflaume',
+  'sojasauce':'Sojasauce','sojasoße':'Sojasauce','essig':'Essig','balsamico':'Balsamico',
+  'weißweinessig':'Weißweinessig','senf':'Senf','ketchup':'Ketchup','mandeln':'Mandeln','walnüsse':'Walnüsse',
+  'haselnüsse':'Haselnüsse','pinienkerne':'Pinienkerne','cashews':'Cashewkerne','sesam':'Sesam',
+  'schokolade':'Schokolade','zartbitterschokolade':'Schokolade','kakao':'Kakao','kokosmilch':'Kokosmilch',
+  'tofu':'Tofu','rosinen':'Rosinen'
+};
+let CUSTOM_SYN = {};   // vom Nutzer gelernte Zuordnungen
+
+/* Saison in Mitteleuropa (Freiland, grob). Monate 1–12. Grundzutaten
+   (Mehl, Zwiebel, Kartoffel …) und Importobst stehen bewusst nicht drin —
+   sie sind ganzjährig zu haben und würden den Saisonfilter verwässern. */
+const SAISON = {
+  'Spargel':[4,5,6], 'Erdbeere':[5,6,7], 'Rhabarber':[4,5,6],
+  'Tomate':[6,7,8,9,10], 'Zucchini':[6,7,8,9,10], 'Aubergine':[7,8,9,10],
+  'Paprika':[7,8,9,10], 'Gurke':[5,6,7,8,9], 'Kürbis':[9,10,11,12],
+  'Brokkoli':[6,7,8,9,10], 'Blumenkohl':[6,7,8,9,10,11], 'Rosenkohl':[10,11,12,1,2],
+  'Spinat':[3,4,5,9,10,11], 'Karotte':[6,7,8,9,10,11], 'Lauch':[1,2,3,9,10,11,12],
+  'Fenchel':[6,7,8,9,10,11], 'Sellerie':[8,9,10,11,12], 'Kohlrabi':[5,6,7,8,9,10],
+  'Weißkohl':[6,7,8,9,10,11,12,1,2,3], 'Rotkohl':[9,10,11,12,1,2], 'Spitzkohl':[5,6,7,8],
+  'Erbsen':[6,7], 'Bohnen':[7,8,9,10], 'Mais':[8,9,10],
+  'Rote Bete':[6,7,8,9,10,11,12], 'Radieschen':[3,4,5,6,7,8,9,10],
+  'Rucola':[4,5,6,7,8,9,10], 'Salat':[5,6,7,8,9,10],
+  'Apfel':[8,9,10,11], 'Birne':[8,9,10], 'Kirsche':[6,7], 'Pflaume':[8,9]
+};
+const MONTH_NAMES = ['Januar','Februar','März','April','Mai','Juni','Juli',
+  'August','September','Oktober','November','Dezember'];
+
+/* ---------- Automatische Tags (festes Vokabular für Vergleichbarkeit) ----------
+   Abgeleitet aus Zutaten, Titel und Kochzeit. Immer dieselben Begriffe.       */
+const T_FLEISCH = new Set(['Hähnchen','Hähnchenbrust','Hackfleisch','Rindfleisch','Schweinefleisch','Speck','Schinken','Pancetta','Chorizo']);
+const T_FISCH   = new Set(['Lachs','Thunfisch','Garnelen']);
+const T_TIERISCH= new Set(['Ei','Eigelb','Eiweiß','Milch','Sahne','Butter','Käse','Parmesan','Mozzarella','Feta','Gouda','Cheddar','Reibekäse','Joghurt','Quark','Schmand','Crème fraîche','Saure Sahne','Frischkäse','Honig']);
+const T_PASTA   = new Set(['Nudeln','Spaghetti','Penne','Tagliatelle']);
+const T_REIS    = new Set(['Reis','Risottoreis']);
+// Text-Fallback für nicht katalogisierte Zutaten — bewusst lange, eindeutige Wörter
+const T_FLEISCH_KW = ['fleisch','hähnchen','hühnchen','pute','schnitzel','speck','bacon','schinken','wurst','salami','chorizo','pancetta','lamm','kalb','kassler','geflügel','frikadelle','bolognese'];
+const T_FISCH_KW   = ['lachs','thunfisch','forelle','kabeljau','dorsch','garnele','scampi','fischfilet','hering','makrele','sardine','tintenfisch','muschel','meeresfrücht','shrimp'];
+
+function parseDur(s){
+  if(!s || typeof s!=='string') return null;
+  const m = s.match(/P(?:T(?:(\d+)H)?(?:(\d+)M)?)?/);
+  if(!m) return null;
+  const min = (parseInt(m[1]||0)*60)+parseInt(m[2]||0);
+  return min>0 ? min : null;
+}
+function classifyDiet(ings){
+  const canons = ings.map(i=>i.canon).filter(Boolean);
+  const texts  = ings.map(i=>((i.canon||'')+' '+(i.name||'')+' '+(i.raw||'')).toLowerCase());
+  const fleisch = canons.some(c=>T_FLEISCH.has(c)) || texts.some(t=>T_FLEISCH_KW.some(k=>t.includes(k)));
+  const fisch   = canons.some(c=>T_FISCH.has(c))   || texts.some(t=>T_FISCH_KW.some(k=>t.includes(k)));
+  const tierisch= fleisch || fisch || canons.some(c=>T_TIERISCH.has(c));
+  return {fleisch, fisch, vegan:!tierisch};
+}
+/* Einheitliche Schreibweise: erster Buchstabe groß, doppelte (auch nur
+   anders geschriebene) Tags werden zusammengeführt. */
+function normalizeTag(t){
+  t = String(t||'').trim().replace(/\s+/g,' ');
+  if(!t) return '';
+  return t.charAt(0).toUpperCase()+t.slice(1);
+}
+function normTags(arr){
+  const seen=new Set(), out=[];
+  (arr||[]).map(normalizeTag).filter(Boolean).forEach(t=>{
+    const k=t.toLowerCase(); if(!seen.has(k)){ seen.add(k); out.push(t); }
+  });
+  return out;
+}
+function autoTags(rec){
+  const t = new Set();
+  const ings = rec.ingredients||[];
+  const {fleisch,fisch,vegan} = classifyDiet(ings);
+  if(fleisch) t.add('Mit Fleisch');
+  if(fisch)   t.add('Mit Fisch');
+  if(!fleisch && !fisch){ t.add('Vegetarisch'); if(vegan) t.add('Vegan'); }
+  const canons = ings.map(i=>i.canon).filter(Boolean);
+  if(canons.some(c=>T_PASTA.has(c))) t.add('Pasta');
+  if(canons.some(c=>T_REIS.has(c)))  t.add('Reis');
+  const title = (rec.title||'').toLowerCase();
+  const hit = arr => arr.some(k=>title.includes(k));
+  if(hit(['suppe','eintopf','ragout','cremesuppe'])) t.add('Suppe');
+  if(hit(['salat'])) t.add('Salat');
+  if(hit(['auflauf','gratin','lasagne','überbacken','quiche','flammkuchen','zwiebelkuchen'])) t.add('Auflauf');
+  const herzhaft = ['zwiebelkuchen','pfannkuchen','gemüsekuchen','lauchkuchen','flammkuchen'];
+  if(!herzhaft.some(k=>title.includes(k)) &&
+     hit(['kuchen','torte','muffin','keks','plätzchen','dessert','tiramisu','pudding','mousse','waffel','brownie','cookie','crème','marmelade','kompott'])) t.add('Süßspeise');
+  if(hit(['frühstück','porridge','müsli','granola','overnight'])) t.add('Frühstück');
+  if(rec.time && rec.time<=30) t.add('Schnell');
+  return normTags([...t]);
+}
+function mergeTags(existing, auto){
+  return normTags([...(existing||[]), ...(auto||[])]);
+}
+
+const QUALIFIERS = [
+  'frisch','frische','frischer','frisches','frischen','getrocknet','getrocknete','getrockneter','getrocknetes',
+  'gehackt','gehackte','gehackter','gehacktes','gemahlen','gemahlene','gemahlener','gerieben','geriebene','geriebener',
+  'gewürfelt','gewürfelte','gekocht','gekochte','geschält','geschälte','fein','grob','klein','kleine','groß','große','großer',
+  'mittelgroße','mittlere','rot','rote','roter','rotes','grün','grüne','grüner','gelb','gelbe','weiß','weiße','weißer',
+  'bio','tk','tiefgekühlt','optional','nach geschmack','ca','etwa','evtl','frisch gemahlener','frisch gemahlen',
+  'natives','natives extra','extra','vergine','mild','scharf','geviertelt','halbiert','in scheiben','in würfeln'
+];
+
+function stripAccentsKeepUmlaut(s){ return s; }
+
+/* HTML-Codes wie &auml; -> ä. Manche Seiten schreiben Umlaute so in ihre Rezeptdaten. */
+const _decEl = typeof document!=='undefined' ? document.createElement('textarea') : null;
+function decodeEntities(s){
+  if(!s || typeof s!=='string' || s.indexOf('&')<0) return s;
+  if(_decEl){ _decEl.innerHTML = s; return _decEl.value; }
+  return s.replace(/&auml;/g,'ä').replace(/&ouml;/g,'ö').replace(/&uuml;/g,'ü')
+          .replace(/&Auml;/g,'Ä').replace(/&Ouml;/g,'Ö').replace(/&Uuml;/g,'Ü')
+          .replace(/&szlig;/g,'ß').replace(/&amp;/g,'&').replace(/&nbsp;/g,' ')
+          .replace(/&#(\d+);/g,(m,n)=>String.fromCharCode(+n));
+}
+function normKey(s){
+  let t = (s||'').toLowerCase().trim();
+  t = t.replace(/\([^)]*\)/g,' ');            // Klammern raus
+  t = t.replace(/[.,;:!*]/g,' ');
+  t = t.replace(/\s+/g,' ').trim();
+  // Qualifizierer entfernen
+  let words = t.split(' ').filter(w=>!QUALIFIERS.includes(w));
+  return words.join(' ').trim();
+}
+function canonical(name){
+  const t = normKey(name);
+  if(!t) return null;
+  if(CUSTOM_SYN[t]) return CUSTOM_SYN[t];
+  if(SYN[t]) return SYN[t];
+  // Wortweise (letztes Wort ist meist das Substantiv)
+  const w = t.split(' ');
+  for(let i=0;i<w.length;i++){
+    const tail = w.slice(i).join(' ');
+    if(CUSTOM_SYN[tail]) return CUSTOM_SYN[tail];
+    if(SYN[tail]) return SYN[tail];
+  }
+  // Zusammengesetztes Wort: endet auf bekanntem Begriff (Cherrytomaten -> tomaten)
+  const keys = Object.keys(SYN).concat(Object.keys(CUSTOM_SYN)).filter(k=>k.length>=4)
+    .sort((a,b)=>b.length-a.length);
+  const last = w[w.length-1];
+  for(const k of keys){
+    if(last.endsWith(k)) return CUSTOM_SYN[k]||SYN[k];
+  }
+  return null;  // unbekannt -> Nutzer kann zuordnen
+}
+
+/* ---------- 4. Zutatenzeile zerlegen ---------- */
+const FRAC = {'½':.5,'⅓':1/3,'⅔':2/3,'¼':.25,'¾':.75,'⅕':.2,'⅙':1/6,'⅛':.125,'⅜':.375,'⅝':.625,'⅞':.875};
+function parseIngredient(raw){
+  let s=(raw||'').replace(/\s+/g,' ').trim();
+  if(!s) return null;
+  const orig=s;
+  // Unicode-Brüche in Zahlen
+  s = s.replace(/([\d])\s*([½⅓⅔¼¾⅕⅙⅛⅜⅝⅞])/g,(m,a,b)=>(parseFloat(a)+FRAC[b]));
+  s = s.replace(/([½⅓⅔¼¾⅕⅙⅛⅜⅝⅞])/g,(m,b)=>FRAC[b]);
+
+  let amount=null, unit=null, unitType=null;
+  // Menge: "1 1/2", "1/2", "1,5", "2-3", "2 bis 3"
+  const m = s.match(/^(\d+(?:[.,]\d+)?)\s*(?:\/\s*(\d+))?\s*(?:(?:-|–|bis)\s*\d+(?:[.,]\d+)?)?\s*/);
+  if(m){
+    let a = parseFloat(m[1].replace(',','.'));
+    if(m[2]) a = a/parseFloat(m[2]);
+    // gemischter Bruch "1 1/2"
+    const rest0 = s.slice(m[0].length);
+    const mix = rest0.match(/^(\d+)\s*\/\s*(\d+)\s*/);
+    if(mix && !m[2]){ a += parseFloat(mix[1])/parseFloat(mix[2]); s = rest0.slice(mix[0].length); }
+    else s = rest0;
+    amount = a;
+  }
+  s = s.trim();
+  // Einheit
+  const um = s.match(/^([A-Za-zÄÖÜäöüß.]+)\.?\s+/) || s.match(/^([A-Za-zÄÖÜäöüß.]+)\.?$/);
+  if(um){
+    const key = um[1].toLowerCase().replace(/\.$/,'');
+    if(UNITS[key]){
+      const [type,factor,label]=UNITS[key];
+      if(type==='count'){ unit = key.charAt(0).toUpperCase()+key.slice(1); unitType='count'; }
+      else if(type==='spoon'){ unit = label; unitType='spoon'; }
+      else { amount = amount!==null ? amount*factor : null; unit = type; unitType = type; }
+      s = s.slice(um[0].length).trim();
+    }
+  }
+  if(amount!==null && !unitType){ unitType='count'; unit=''; }   // "3 Eier"
+  if(amount===null){ unitType='none'; unit=''; }                  // "Salz"
+
+  // Notiz nach Komma
+  let note='';
+  const ci = s.indexOf(',');
+  if(ci>0){ note = s.slice(ci+1).trim(); s = s.slice(0,ci).trim(); }
+  const name = s.replace(/^(einer?|ein|eine)\s+/i,'').trim() || orig;
+  return {raw:orig, amount, unit, unitType, name, note, canon: canonical(name)};
+}
+
+/* ---------- 5. Skalieren (nur Stück-Zutaten werden gerundet) ---------- */
+function scaleIng(ing, factor){
+  if(ing.amount===null) return {...ing, sAmount:null, rounded:false};
+  let v = ing.amount * factor;
+  let rounded=false;
+  if(ing.unitType==='count'){
+    const r = Math.round(v*2)/2;                 // halbe Stücke sind küchentauglich
+    const fin = r<0.5 ? 0.5 : r;
+    if(Math.abs(fin-v)>0.02) rounded=true;
+    v = fin;
+  } else if(ing.unitType==='spoon'){
+    v = Math.max(0.25, Math.round(v*4)/4);       // Viertellöffel genügen
+  } else {
+    v = v>=100 ? Math.round(v) : Math.round(v*10)/10;
+  }
+  return {...ing, sAmount:v, rounded};
+}
+function fmtNum(n){
+  if(n===null||n===undefined) return '';
+  const r = Math.round(n*100)/100;
+  return (Number.isInteger(r) ? String(r) : String(r).replace('.',','));
+}
+function fmtQty(i){
+  if(i.sAmount===null) return '';
+  let u = i.unitType==='g' ? ' g' : i.unitType==='ml' ? ' ml' : (i.unit?' '+i.unit:'');
+  return fmtNum(i.sAmount)+u;
+}
+
+/* ---------- 6. Import: Seite holen + JSON-LD lesen ---------- */
+const PROXIES = [
+  u=>'https://api.allorigins.win/raw?url='+encodeURIComponent(u),
+  u=>'https://corsproxy.io/?url='+encodeURIComponent(u),
+  u=>'https://api.codetabs.com/v1/proxy/?quest='+encodeURIComponent(u)
+];
+async function fetchPage(url){
+  let lastErr;
+  for(const p of PROXIES){
+    try{
+      const r = await fetch(p(url), {redirect:'follow'});
+      if(!r.ok) throw new Error('HTTP '+r.status);
+      const t = await r.text();
+      if(t && t.length>300) return t;
+      throw new Error('Leere Antwort');
+    }catch(e){ lastErr=e; }
+  }
+  throw new Error('Keine der Verbindungen hat funktioniert. '+(lastErr?lastErr.message:''));
+}
+function flat(x, out=[]){
+  if(!x) return out;
+  if(Array.isArray(x)){ x.forEach(i=>flat(i,out)); return out; }
+  if(typeof x==='object'){
+    out.push(x);
+    if(x['@graph']) flat(x['@graph'], out);
+  }
+  return out;
+}
+function isRecipe(o){
+  const t=o['@type'];
+  return t==='Recipe' || (Array.isArray(t)&&t.includes('Recipe'));
+}
+function textOf(v){
+  if(!v) return '';
+  if(typeof v==='string') return v;
+  if(Array.isArray(v)) return v.map(textOf).filter(Boolean).join(' ');
+  if(typeof v==='object') return textOf(v.text||v.name||'');
+  return '';
+}
+function stepsOf(v){
+  if(!v) return [];
+  if(typeof v==='string'){
+    return v.split(/\n+|(?<=\.)\s{2,}/).map(s=>s.trim()).filter(s=>s.length>2);
+  }
+  if(Array.isArray(v)){
+    let out=[];
+    v.forEach(i=>{
+      if(typeof i==='string') out.push(i.trim());
+      else if(i['@type']==='HowToSection' && i.itemListElement) out=out.concat(stepsOf(i.itemListElement));
+      else if(i.text) out.push(String(i.text).trim());
+      else if(i.name) out.push(String(i.name).trim());
+    });
+    return out.filter(s=>s.length>2);
+  }
+  return [];
+}
+function imgOf(v){
+  if(!v) return '';
+  if(typeof v==='string') return v;
+  if(Array.isArray(v)) return imgOf(v[0]);
+  if(typeof v==='object') return imgOf(v.url||v.contentUrl||'');
+  return '';
+}
+function yieldOf(v){
+  const t = textOf(v);
+  const m = t.match(/\d+/);
+  return m ? parseInt(m[0]) : 4;
+}
+function extractRecipe(html, url){
+  const doc = new DOMParser().parseFromString(html,'text/html');
+  const blocks = [...doc.querySelectorAll('script[type="application/ld+json"]')];
+  let rec=null;
+  for(const b of blocks){
+    let data;
+    try{ data = JSON.parse(b.textContent.trim()); }
+    catch(e){
+      try{ data = JSON.parse(b.textContent.replace(/[\u0000-\u001F]+/g,' ')); }catch(e2){ continue; }
+    }
+    const found = flat(data).find(isRecipe);
+    if(found){ rec=found; break; }
+  }
+  if(!rec) return null;
+  const ingLines = (rec.recipeIngredient||rec.ingredients||[]).map(textOf).map(decodeEntities).filter(Boolean);
+  let time = parseDur(rec.totalTime);
+  if(!time){ const c=parseDur(rec.cookTime), p=parseDur(rec.prepTime); if(c||p) time=(c||0)+(p||0); }
+  const out = {
+    title: decodeEntities(textOf(rec.name) || doc.title || 'Ohne Titel'),
+    image: imgOf(rec.image),
+    servings: yieldOf(rec.recipeYield),
+    ingredients: ingLines.map(parseIngredient).filter(Boolean),
+    steps: stepsOf(rec.recipeInstructions).map(decodeEntities),
+    source: url,
+    site: (()=>{ try{ return new URL(url).hostname.replace(/^www\./,''); }catch(e){ return ''; } })(),
+    time: time||null,
+    tags: []
+  };
+  out.tags = autoTags(out);   // automatisch verschlagworten
+  return out;
+}
+async function imageToData(url){
+  if(!url) return '';
+  for(const p of PROXIES){
+    try{
+      const r = await fetch(p(url));
+      if(!r.ok) continue;
+      const b = await r.blob();
+      if(b.size===0 || b.size>3_000_000) continue;
+      return await new Promise(res=>{const fr=new FileReader();fr.onload=()=>res(fr.result);fr.onerror=()=>res('');fr.readAsDataURL(b);});
+    }catch(e){}
+  }
+  return url; // Notfall: Original-Link (dann aber nicht offline)
+}
+
+/* ---------- 7. Zustand & Hilfsfunktionen ---------- */
+let RECIPES=[], filterTag=null, filterSeason=false, query='';
+const $ = s=>document.querySelector(s);
+const esc = s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const uid = ()=>Date.now().toString(36)+Math.random().toString(36).slice(2,7);
+function toast(msg){
+  const t=$('#toast'); t.textContent=msg; t.classList.add('on');
+  clearTimeout(t._x); t._x=setTimeout(()=>t.classList.remove('on'),1900);
+}
+async function saveRecipe(r){ await DB.put('recipes', r); const i=RECIPES.findIndex(x=>x.id===r.id); i>=0?RECIPES[i]=r:RECIPES.unshift(r); }
+async function saveSyn(){ await DB.put('meta',{k:'syn', v:CUSTOM_SYN}); }
+
+/* Hat das Rezept jetzt Saison? Es zählen nur saison-relevante Zutaten;
+   die Mehrheit davon muss im aktuellen Monat Saison haben. */
+function isSeasonal(r){
+  const month = new Date().getMonth()+1;
+  const rel = (r.ingredients||[]).map(i=>i.canon).filter(c=>c && SAISON[c]);
+  if(!rel.length) return false;
+  const good = rel.filter(c=>SAISON[c].includes(month)).length;
+  return good>=1 && good >= Math.ceil(rel.length/2);
+}
+
+/* ---------- 8. Rezeptliste ---------- */
+function allTags(){ return [...new Set(RECIPES.flatMap(r=>r.tags||[]))].sort((a,b)=>a.localeCompare(b,'de')); }
+function matches(r){
+  if(filterTag && !(r.tags||[]).includes(filterTag)) return false;
+  if(filterSeason && !isSeasonal(r)) return false;
+  if(!query) return true;
+  const q = query.toLowerCase().trim();
+  if(r.title.toLowerCase().includes(q)) return true;
+  return (r.ingredients||[]).some(i =>
+    (i.canon||'').toLowerCase().includes(q) ||
+    (i.name||'').toLowerCase().includes(q) ||
+    (i.raw||'').toLowerCase().includes(q)
+  );
+}
+/* Gedämpfte Farbpalette — jeder Tag bekommt verlässlich denselben Ton */
+const TAG_COLORS = [
+  ['#F3E2DA','#8C4A2F'], ['#E7EBD8','#55632E'], ['#DEEAE8','#2A5D57'],
+  ['#F6E9CE','#8A6A0C'], ['#ECE0E6','#7A4A63'], ['#E0E7EC','#3F5A6B'], ['#F0E4D6','#7E5A34']
+];
+function tagColor(name){
+  let h=0; const s=String(name||'');
+  for(let i=0;i<s.length;i++) h=(h*31+s.charCodeAt(i))>>>0;
+  return TAG_COLORS[h % TAG_COLORS.length];
+}
+
+function renderList(){
+  const rs = RECIPES.filter(matches);
+  $('#hcount').textContent = RECIPES.length ? rs.length+'/'+RECIPES.length : '';
+  const tags = allTags();
+  const month = new Date().getMonth()+1;
+  const seasonChip = RECIPES.length
+    ? `<button class="chip season ${filterSeason?'on':''}" data-season="1">Saison · ${MONTH_NAMES[month-1]}</button>`
+    : '';
+  const tagChips = tags.map(t=>{
+    const on = filterTag===t, [bg,fg]=tagColor(t);
+    const st = on ? '' : `style="background:${bg};border-color:${bg};color:${fg}"`;
+    return `<button class="chip ${on?'on':''}" ${st} data-tag="${esc(t)}">${esc(t)}</button>`;
+  }).join('');
+  $('#tagchips').innerHTML = seasonChip + tagChips;
+  if(!RECIPES.length){
+    $('#list').innerHTML = `<div class="empty"><b>Noch kein Rezept da</b>
+      Tippe unten auf „Hinzufügen“ und füge die Adresse einer Rezeptseite ein.</div>`;
+    return;
+  }
+  if(!rs.length){
+    $('#list').innerHTML = filterSeason
+      ? `<div class="empty"><b>Nichts für ${MONTH_NAMES[month-1]}</b>Kein Rezept mit überwiegend saisonalen Zutaten. Tippe „Saison“ erneut, um den Filter zu lösen.</div>`
+      : `<div class="empty"><b>Nichts gefunden</b>Andere Zutat oder anderen Namen versuchen.</div>`;
+    return;
+  }
+  $('#list').innerHTML = '<div class="grid">'+rs.map(r=>{
+    const tag0 = (r.tags||[])[0];
+    const tagHtml = tag0 ? (()=>{const [bg,fg]=tagColor(tag0); return `<span class="ctag" style="background:${bg};color:${fg}">${esc(tag0)}</span>`;})() : '';
+    return `
+    <button class="card" data-open="${r.id}">
+      ${r.image?`<img class="thumb" src="${esc(r.image)}" alt="" loading="lazy">`:`<div class="thumb"></div>`}
+      <div class="body">
+        <h3>${esc(r.title)}</h3>
+        <div class="meta">${r.baseServings||4} Port. · ${(r.ingredients||[]).length} Zutaten</div>
+        ${tagHtml}
+      </div>
+    </button>`;
+  }).join('')+'</div>';
+}
+
+/* ---------- 9. Rezeptansicht + Mengen-Leiste ---------- */
+let cur=null, curServ=4;
+function openRecipe(id){
+  cur = RECIPES.find(r=>r.id===id); if(!cur) return;
+  curServ = cur.baseServings||4;
+  renderDetail();
+  $('#detail').classList.remove('hide');
+  $('#detail').scrollTop=0;
+}
+function renderDetail(){
+  const f = curServ/(cur.baseServings||4);
+  const ings = (cur.ingredients||[]).map(i=>scaleIng(i,f));
+  const anyRound = ings.some(i=>i.rounded);
+  $('#detail').innerHTML = `
+    <div class="sheetbar">
+      <button class="iconbtn" id="back">‹ Zurück</button>
+      <span class="title"></span>
+      <button class="iconbtn" id="edit">Bearbeiten</button>
+    </div>
+    ${cur.image?`<img class="hero" src="${esc(cur.image)}" alt="">`:''}
+    <div class="rbody">
+      <h2>${esc(cur.title)}</h2>
+      ${cur.source?`<div class="source">Quelle: <a href="${esc(cur.source)}" target="_blank" rel="noopener">${esc(cur.site||cur.source)}</a></div>`:''}
+      ${(cur.tags||[]).length?`<div class="tagrow">${cur.tags.map(t=>{const [bg,fg]=tagColor(t); return `<span class="tag" style="background:${bg};color:${fg}">${esc(t)}</span>`;}).join('')}</div>`:''}
+      <h4 class="sec">Zutaten</h4>
+      <ul class="ing">${ings.map(i=>`
+        <li>
+          <span class="qty ${f!==1?'scaled':''}">${i.rounded?'<span class="approx">≈</span> ':''}${esc(fmtQty(i))}</span>
+          <span class="iname">${esc(i.canon||i.name)}${i.note?` <span class="inote">· ${esc(i.note)}</span>`:''}</span>
+        </li>`).join('')}</ul>
+      <h4 class="sec">Zubereitung</h4>
+      <ol class="steps">${(cur.steps||[]).map(s=>`<li><span>${esc(s)}</span></li>`).join('') || '<li><span>Keine Schritte gespeichert.</span></li>'}</ol>
+    </div>
+    <div class="scaler">
+      <div class="row">
+        <div class="stepper">
+          <button id="minus" aria-label="Weniger">−</button>
+          <span class="val" id="sv">${curServ}</span>
+          <button id="plus" aria-label="Mehr">+</button>
+        </div>
+        <div class="lbl"><b>Portionen</b>Original: ${cur.baseServings||4}</div>
+        <button class="cookbtn" id="cookbtn">Kochmodus</button>
+      </div>
+      <div class="hint ${anyRound?'on':''}">≈ Stück-Zutaten wurden auf küchentaugliche Mengen gerundet. Gewichte und Flüssigkeiten sind exakt umgerechnet.</div>
+    </div>`;
+  const keep = fn=>()=>{ const s=$('#detail').scrollTop; fn(); renderDetail(); $('#detail').scrollTop=s; };
+  $('#back').onclick = ()=>$('#detail').classList.add('hide');
+  $('#edit').onclick = ()=>openEditor(cur);
+  $('#minus').onclick = keep(()=>{ if(curServ>1) curServ--; });
+  $('#plus').onclick  = keep(()=>{ if(curServ<50) curServ++; });
+  $('#cookbtn').onclick = ()=>openCook(ings);
+}
+
+/* ---------- 10. Kochmodus ---------- */
+let wake=null, cookStep=0;
+async function openCook(ings){
+  cookStep=0;
+  const steps = (cur.steps||[]).length?cur.steps:['Keine Schritte gespeichert.'];
+  const draw=()=>{
+    $('#cook').innerHTML = `
+      <div class="sheetbar">
+        <button class="iconbtn" id="cclose">✕ Beenden</button>
+        <span class="title">${esc(cur.title)}</span>
+      </div>
+      <div class="cookwrap">
+        <div class="cookcount">SCHRITT ${cookStep+1} VON ${steps.length}</div>
+        <div class="cookstep">${esc(steps[cookStep])}</div>
+        <div class="cooking-ing">
+          <div class="cookcount">ZUTATEN · ${curServ} PORTIONEN</div>
+          ${ings.map((i,n)=>`<label><input type="checkbox" data-c="${n}"><span class="qty">${esc(fmtQty(i))}</span><span>${esc(i.canon||i.name)}</span></label>`).join('')}
+        </div>
+      </div>
+      <div class="cooknav">
+        <button class="prev" id="cprev" ${cookStep===0?'disabled':''}>Zurück</button>
+        <button class="next" id="cnext">${cookStep===steps.length-1?'Fertig':'Weiter'}</button>
+      </div>`;
+    $('#cclose').onclick = closeCook;
+    $('#cprev').onclick = ()=>{ if(cookStep>0){cookStep--; draw();} };
+    $('#cnext').onclick = ()=>{ if(cookStep<steps.length-1){cookStep++; draw(); $('#cook').scrollTop=0;} else closeCook(); };
+  };
+  draw();
+  $('#cook').classList.remove('hide');
+  try{ if('wakeLock' in navigator) wake = await navigator.wakeLock.request('screen'); }catch(e){}
+}
+function closeCook(){
+  $('#cook').classList.add('hide');
+  if(wake){ try{wake.release();}catch(e){} wake=null; }
+}
+
+/* ---------- 11. Editor (nach Import & zum Nachbessern) ---------- */
+let draft=null, isNew=false;
+function openEditor(rec, fresh=false){
+  draft = JSON.parse(JSON.stringify(rec)); isNew=fresh;
+  drawEditor();
+  $('#editor').classList.remove('hide');
+  $('#editor').scrollTop=0;
+}
+function drawEditor(){
+  $('#editor').innerHTML = `
+    <div class="sheetbar">
+      <button class="iconbtn" id="ecancel">Abbrechen</button>
+      <span class="title">${isNew?'Rezept prüfen':'Bearbeiten'}</span>
+      <button class="iconbtn" id="esave" style="background:var(--deep);color:#fff;border-color:var(--deep);font-weight:650">Speichern</button>
+    </div>
+    <div class="form">
+      <div class="field"><label>Titel</label><input type="text" id="etitle" value="${esc(draft.title)}"></div>
+      <div class="field"><label>Portionen im Original</label><input type="text" id="eserv" inputmode="numeric" value="${draft.baseServings||draft.servings||4}"></div>
+      <div class="field"><label>Tags — mit Komma trennen</label><input type="text" id="etags" value="${esc((draft.tags||[]).join(', '))}" placeholder="Pasta, schnell, vegetarisch"></div>
+      <div class="field"><label>Quelle</label><input type="url" id="esrc" value="${esc(draft.source||'')}"></div>
+
+      <h4 class="sec">Zutaten — ${draft.ingredients.length}</h4>
+      <div class="note" style="margin-bottom:10px">Der Chip zeigt, unter welchem Namen die Zutat gefunden wird. Gelb heißt: noch nicht zugeordnet — tippe drauf, um sie zu benennen.</div>
+      <div id="einglist"></div>
+      <button class="btn ghost" id="eadding">+ Zutat</button>
+
+      <h4 class="sec">Zubereitung</h4>
+      <div class="field"><textarea id="esteps" rows="12" placeholder="Ein Schritt pro Absatz">${esc((draft.steps||[]).join('\n\n'))}</textarea></div>
+
+      ${isNew?'':'<button class="btn warn" id="edel" style="margin-top:24px">Rezept löschen</button>'}
+    </div>`;
+  drawIngEdits();
+  $('#ecancel').onclick = ()=>$('#editor').classList.add('hide');
+  $('#esave').onclick = saveDraft;
+  $('#eadding').onclick = ()=>{ draft.ingredients.push({raw:'',amount:null,unit:'',unitType:'none',name:'',note:'',canon:null}); drawIngEdits(); };
+  if(!isNew) $('#edel').onclick = async ()=>{
+    if(!confirm('Rezept endgültig löschen?')) return;
+    await DB.del('recipes', draft.id);
+    RECIPES = RECIPES.filter(r=>r.id!==draft.id);
+    $('#editor').classList.add('hide'); $('#detail').classList.add('hide');
+    renderList(); toast('Gelöscht');
+  };
+}
+function drawIngEdits(){
+  $('#einglist').innerHTML = draft.ingredients.map((i,n)=>`
+    <div class="ingedit" data-n="${n}">
+      <div class="top">
+        <input class="amt" data-f="amount" inputmode="decimal" placeholder="Menge" value="${i.amount!==null?fmtNum(i.amount):''}">
+        <input class="unit" data-f="unit" placeholder="g / ml / EL / Stück" value="${esc(i.unitType==='g'?'g':i.unitType==='ml'?'ml':(i.unit||''))}">
+        <input data-f="name" placeholder="Zutat" value="${esc(i.name)}">
+      </div>
+      <div class="bot">
+        <button class="canon ${i.canon?'':'unknown'}" data-canon="${n}">${i.canon?esc(i.canon):'zuordnen'}</button>
+        <button class="del" data-del="${n}">Entfernen</button>
+      </div>
+    </div>`).join('');
+  $('#einglist').oninput = e=>{
+    const box = e.target.closest('.ingedit'); if(!box) return;
+    const n = +box.dataset.n, f = e.target.dataset.f, v = e.target.value.trim();
+    const ing = draft.ingredients[n];
+    if(f==='amount') ing.amount = v===''?null:parseFloat(v.replace(',','.'));
+    if(f==='unit'){
+      const key=v.toLowerCase();
+      if(UNITS[key]){
+        const [t,,label]=UNITS[key]; ing.unitType=t;
+        ing.unit = t==='spoon' ? label : t==='count' ? (v.charAt(0).toUpperCase()+v.slice(1)) : t;
+      }
+      else if(v===''){ ing.unitType = ing.amount!==null?'count':'none'; ing.unit=''; }
+      else { ing.unitType='count'; ing.unit=v; }
+    }
+    if(f==='name'){ ing.name=v; ing.canon = canonical(v); box.querySelector('[data-canon]').textContent = ing.canon||'zuordnen';
+      box.querySelector('[data-canon]').className = 'canon '+(ing.canon?'':'unknown'); }
+  };
+  $('#einglist').onclick = async e=>{
+    const d = e.target.closest('[data-del]');
+    if(d){ draft.ingredients.splice(+d.dataset.del,1); drawIngEdits(); return; }
+    const c = e.target.closest('[data-canon]');
+    if(c){
+      const n=+c.dataset.canon, ing=draft.ingredients[n];
+      const val = prompt('Wie soll diese Zutat in Suche und Einkaufsliste heißen?\n\nZeile: '+(ing.raw||ing.name), ing.canon||ing.name);
+      if(val && val.trim()){
+        const clean = val.trim();
+        ing.canon = clean;
+        const key = normKey(ing.name);
+        if(key){ CUSTOM_SYN[key] = clean; await saveSyn(); }   // merkt sich die Zuordnung
+        drawIngEdits();
+      }
+    }
+  };
+}
+async function saveDraft(){
+  draft.title = $('#etitle').value.trim() || 'Ohne Titel';
+  draft.baseServings = Math.max(1, parseInt($('#eserv').value)||4);
+  draft.tags = normTags($('#etags').value.split(',').map(t=>t.trim()).filter(Boolean));
+  draft.source = $('#esrc').value.trim();
+  draft.steps = $('#esteps').value.split(/\n\s*\n/).map(s=>s.trim().replace(/\n/g,' ')).filter(Boolean);
+  draft.ingredients = draft.ingredients.filter(i=>i.name);
+  draft.ingredients.forEach(i=>{ if(!i.raw) i.raw = [i.amount!==null?fmtNum(i.amount):'', i.unit, i.name].filter(Boolean).join(' '); });
+  if(!draft.id) draft.id = uid();
+  if(!draft.added) draft.added = Date.now();
+  try{ draft.site = draft.source ? new URL(draft.source).hostname.replace(/^www\./,'') : ''; }catch(e){}
+  await saveRecipe(draft);
+  $('#editor').classList.add('hide');
+  renderList();
+  if(!isNew && cur && cur.id===draft.id){ cur=draft; curServ=draft.baseServings; renderDetail(); }
+  toast('Gespeichert');
+}
+
+/* ---------- 12. Tabs: Hinzufügen / Einkauf / Daten ---------- */
+function setTab(t){
+  document.querySelectorAll('nav.tabs button').forEach(b=>b.classList.toggle('on', b.dataset.tab===t));
+  $('#head').style.display = t==='list' ? '' : 'none';
+  if(t==='list') renderList();
+  if(t==='import') viewImport();
+  if(t==='shop') viewShop();
+  if(t==='settings') viewSettings();
+}
+function viewImport(){
+  $('#list').innerHTML = `
+    <div class="form" style="padding:0">
+      <h4 class="sec" style="margin-top:8px">Rezept von einer Website</h4>
+      <div class="field">
+        <label>Adresse der Rezeptseite</label>
+        <input type="url" id="iurl" placeholder="https://…" autocapitalize="off" autocorrect="off">
+      </div>
+      <button class="btn" id="igo">Rezept holen</button>
+      <div class="status" id="istat"></div>
+      <div class="note">Die Seite wird über einen offenen Weiterleitungsdienst geladen, weil der Browser fremde Websites nicht direkt abrufen darf. Klappt bei den meisten großen Rezeptseiten.</div>
+
+      <h4 class="sec">Wenn das nicht klappt</h4>
+      <div class="field">
+        <label>Quelltext der Seite einfügen</label>
+        <textarea id="ihtml" rows="4" placeholder="Seitenquelltext hierher kopieren"></textarea>
+      </div>
+      <div class="field">
+        <label>Und die zugehörige Adresse</label>
+        <input type="url" id="ihtmlurl" placeholder="https://…" autocapitalize="off">
+      </div>
+      <button class="btn ghost" id="igo2">Aus Quelltext lesen</button>
+
+      <h4 class="sec">Von Hand</h4>
+      <button class="btn ghost" id="imanual">Leeres Rezept anlegen</button>
+    </div>`;
+  $('#igo').onclick = async ()=>{
+    const url = $('#iurl').value.trim();
+    if(!url) return;
+    const st=$('#istat'); st.className='status on'; st.innerHTML='<span class="spin"></span>Seite wird geladen…';
+    try{
+      const html = await fetchPage(url);
+      st.innerHTML='<span class="spin"></span>Rezept wird gelesen…';
+      const rec = extractRecipe(html, url);
+      if(!rec) throw new Error('Auf dieser Seite steckt kein maschinenlesbares Rezept. Nimm den Quelltext-Weg oder leg es von Hand an.');
+      st.innerHTML='<span class="spin"></span>Bild wird gespeichert…';
+      rec.image = await imageToData(rec.image);
+      st.className='status on ok'; st.textContent='Gefunden: '+rec.title;
+      rec.baseServings = rec.servings||4;
+      openEditor(rec, true);
+    }catch(e){
+      st.className='status on err'; st.textContent = e.message;
+    }
+  };
+  $('#igo2').onclick = async ()=>{
+    const html=$('#ihtml').value, url=$('#ihtmlurl').value.trim();
+    const st=$('#istat'); st.className='status on';
+    try{
+      const rec = extractRecipe(html, url||'');
+      if(!rec) throw new Error('Im Quelltext steckt kein Rezept im erwarteten Format.');
+      rec.image = await imageToData(rec.image);
+      rec.baseServings = rec.servings||4;
+      st.className='status on ok'; st.textContent='Gefunden: '+rec.title;
+      openEditor(rec, true);
+    }catch(e){ st.className='status on err'; st.textContent=e.message; }
+  };
+  $('#imanual').onclick = ()=>openEditor({
+    title:'', image:'', baseServings:4, ingredients:[], steps:[], source:'', site:'', tags:[]
+  }, true);
+}
+
+let picked = new Set();
+let shopLines = [];
+function viewShop(){
+  if(!RECIPES.length){ $('#list').innerHTML='<div class="empty"><b>Erst Rezepte, dann Einkauf</b>Füge ein Rezept hinzu.</div>'; return; }
+  $('#list').innerHTML = `
+    <div class="form" style="padding:0">
+      <h4 class="sec" style="margin-top:8px">Rezepte auswählen</h4>
+      <div id="picklist">${RECIPES.map(r=>`
+        <label class="pick">
+          <input type="checkbox" data-p="${r.id}" ${picked.has(r.id)?'checked':''}>
+          <span class="nm">${esc(r.title)}</span>
+          <span class="pp">
+            <button class="iconbtn" data-minus="${r.id}" style="padding:2px 8px">−</button>
+            <span id="ps-${r.id}">${servFor(r)}</span>
+            <button class="iconbtn" data-plus="${r.id}" style="padding:2px 8px">+</button>
+          </span>
+        </label>`).join('')}</div>
+      <h4 class="sec">Einkaufsliste</h4>
+      <pre class="shop" id="shoptext">Noch nichts ausgewählt.</pre>
+      <div class="btnrow">
+        <button class="btn" id="copyplain">Liste kopieren</button>
+      </div>
+      <div class="note"><b>Abhakbare Kästchen in Google Notizen (Keep):</b> Neue Notiz öffnen, Liste einfügen, dann oben rechts über das Drei-Punkte-Menü „Kästchen anzeigen“ wählen — jede Zeile wird ein eigenes, abhakbares Kästchen. (Kästchen macht Keep selbst; die App fügt deshalb keine ein.) In Google Docs: Liste einfügen, alles markieren, auf das Checklisten-Symbol tippen.</div>
+    </div>`;
+  $('#picklist').onclick = e=>{
+    const cb=e.target.closest('[data-p]');
+    if(cb){ const id=cb.dataset.p; cb.checked?picked.add(id):picked.delete(id); buildShop(); return; }
+    const m=e.target.closest('[data-minus]'), p=e.target.closest('[data-plus]');
+    if(m||p){ e.preventDefault();
+      const id=(m||p).dataset.minus||(m||p).dataset.plus;
+      const cur=servFor(id2r(id)); const v = m? Math.max(1,cur-1) : Math.min(50,cur+1);
+      SERV[id]=v; document.getElementById('ps-'+id).textContent=v; buildShop();
+    }
+  };
+  const copy = async (text)=>{
+    if(!text){ toast('Nichts ausgewählt'); return; }
+    try{ await navigator.clipboard.writeText(text); toast('Kopiert'); }
+    catch(e){
+      const ta=document.createElement('textarea'); ta.value=text; document.body.appendChild(ta);
+      ta.select(); document.execCommand('copy'); ta.remove(); toast('Kopiert');
+    }
+  };
+  $('#copyplain').onclick = ()=>copy(shopLines.join('\n'));
+  buildShop();
+}
+const SERV={};
+const id2r = id=>RECIPES.find(r=>r.id===id);
+const servFor = r=> SERV[r.id] ?? (r.baseServings||4);
+function buildShop(){
+  const box=$('#shoptext'); if(!box) return;
+  const rs = RECIPES.filter(r=>picked.has(r.id));
+  if(!rs.length){ box.textContent='Noch nichts ausgewählt.'; shopLines=[]; return; }
+  const bag = {}; // key: canon|typ
+  rs.forEach(r=>{
+    const f = servFor(r)/(r.baseServings||4);
+    (r.ingredients||[]).forEach(raw=>{
+      const i = scaleIng(raw,f);
+      const nm = i.canon || i.name;
+      const key = nm.toLowerCase()+'|'+i.unitType+'|'+((i.unitType==='count'||i.unitType==='spoon')?i.unit:'');
+      if(!bag[key]) bag[key]={name:nm, unitType:i.unitType, unit:i.unit, sum:0, any:false};
+      if(i.sAmount!==null){ bag[key].sum += i.sAmount; bag[key].any=true; }
+    });
+  });
+  const lines = Object.values(bag).sort((a,b)=>a.name.localeCompare(b.name,'de')).map(b=>{
+    if(!b.any) return b.name;
+    let amt=b.sum, unit = b.unitType==='g'?'g':b.unitType==='ml'?'ml':b.unit;
+    if(b.unitType==='g' && amt>=1000){ amt=Math.round(amt/100)/10; unit='kg'; }
+    if(b.unitType==='ml' && amt>=1000){ amt=Math.round(amt/100)/10; unit='l'; }
+    if(b.unitType==='count') amt = Math.round(amt*2)/2;
+    else if(b.unitType==='spoon') amt = Math.round(amt*4)/4;
+    else amt = amt>=10?Math.round(amt):Math.round(amt*10)/10;
+    return `${fmtNum(amt)}${unit?' '+unit:''} ${b.name}`.trim();
+  });
+  shopLines = lines;
+  box.textContent = lines.join('\n');
+}
+
+function viewSettings(){
+  $('#list').innerHTML = `
+    <div class="form" style="padding:0">
+      <h4 class="sec" style="margin-top:8px">Sicherung</h4>
+      <div class="note" style="margin-top:0">Die Rezepte liegen nur in diesem Browser. Wenn du den Website-Speicher löschst, sind sie weg. Lade dir ab und zu eine Sicherungsdatei herunter.</div>
+      <div class="btnrow" style="margin-top:14px">
+        <button class="btn" id="sexp">Sicherung speichern</button>
+      </div>
+      <div class="btnrow">
+        <button class="btn ghost" id="simp">Sicherung einlesen</button>
+        <input type="file" id="sfile" accept="application/json" hidden>
+      </div>
+      <h4 class="sec">Automatische Tags</h4>
+      <div class="note" style="margin-top:0">Ergänzt bei allen Rezepten die einheitlichen Tags (Ernährung, Gericht-Art, Pasta/Reis, schnell). Selbst gesetzte Tags bleiben erhalten.</div>
+      <div class="btnrow" style="margin-top:12px">
+        <button class="btn ghost" id="sretag">Tags jetzt ergänzen</button>
+      </div>
+      <h4 class="sec">Status</h4>
+      <div class="note">
+        <b style="color:var(--deep)">App-Stand: ${APP_VERSION}</b><br>
+        ${RECIPES.length} Rezepte · ${Object.keys(CUSTOM_SYN).length} eigene Zutaten-Zuordnungen<br>
+        Speicher: ${DB.isMem()?'<b style="color:#B3402A">nur flüchtig — dieser Browser erlaubt keinen dauerhaften Speicher</b>':'dauerhaft im Browser'}
+      </div>
+    </div>`;
+  $('#sretag').onclick = async ()=>{
+    let changed=0;
+    for(const r of RECIPES){
+      const merged = mergeTags(r.tags, autoTags(r));
+      if(merged.length !== (r.tags||[]).length){ r.tags=merged; await DB.put('recipes', r); changed++; }
+    }
+    toast(changed ? changed+' Rezepte ergänzt' : 'Alles schon getaggt');
+    renderList();
+  };
+  $('#sexp').onclick = ()=>{
+    const data = JSON.stringify({v:1, recipes:RECIPES, syn:CUSTOM_SYN}, null, 1);
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([data],{type:'application/json'}));
+    a.download = 'kuechenzettel-'+new Date().toISOString().slice(0,10)+'.json';
+    a.click(); URL.revokeObjectURL(a.href);
+  };
+  $('#simp').onclick = ()=>$('#sfile').click();
+  $('#sfile').onchange = async e=>{
+    const f=e.target.files[0]; if(!f) return;
+    try{
+      const d = JSON.parse(await f.text());
+      if(!Array.isArray(d.recipes)) throw new Error();
+      for(const r of d.recipes){ if(!r.id) r.id=uid(); await DB.put('recipes',r); }
+      if(d.syn){ CUSTOM_SYN = {...CUSTOM_SYN, ...d.syn}; await saveSyn(); }
+      RECIPES = await DB.all('recipes');
+      RECIPES.sort((a,b)=>(b.added||0)-(a.added||0));
+      toast(d.recipes.length+' Rezepte eingelesen'); viewSettings();
+    }catch(err){ toast('Datei nicht lesbar'); }
+  };
+}
+
+/* ---------- 13. Start ---------- */
+document.querySelector('nav.tabs').onclick = e=>{
+  const b=e.target.closest('button[data-tab]'); if(b) setTab(b.dataset.tab);
+};
+$('#q').oninput = e=>{ query=e.target.value; renderList(); };
+$('#tagchips').onclick = e=>{
+  const s=e.target.closest('[data-season]');
+  if(s){ filterSeason=!filterSeason; renderList(); return; }
+  const c=e.target.closest('[data-tag]'); if(!c) return;
+  filterTag = filterTag===c.dataset.tag ? null : c.dataset.tag;
+  renderList();
+};
+$('#list').addEventListener('click', e=>{
+  const c=e.target.closest('[data-open]'); if(c) openRecipe(c.dataset.open);
+});
+// Beim Zurückkehren zur App neu rendern, damit Monat und Saison-Tag stimmen
+document.addEventListener('visibilitychange', ()=>{
+  if(!document.hidden && document.querySelector('nav.tabs button.on')?.dataset.tab==='list') renderList();
+});
+
+(async function boot(){
+  await DB.open();
+  RECIPES = await DB.all('recipes');
+  // Einmalige Reparatur: HTML-Codes (&auml; usw.) in bereits gespeicherten Rezepten säubern
+  for(const r of RECIPES){
+    let touched=false;
+    const dec=(v)=>{ const n=decodeEntities(v); if(n!==v) touched=true; return n; };
+    if(r.title) r.title=dec(r.title);
+    (r.ingredients||[]).forEach(i=>{ if(i.name)i.name=dec(i.name); if(i.note)i.note=dec(i.note); if(i.raw)i.raw=dec(i.raw); if(i.canon)i.canon=dec(i.canon); });
+    if(Array.isArray(r.steps)) r.steps=r.steps.map(dec);
+    if(touched) await DB.put('recipes', r);
+  }
+  RECIPES.forEach(r=>{ if(!r.added) r.added=0; });
+  RECIPES.sort((a,b)=>(b.added||0)-(a.added||0));
+  const meta = await DB.all('meta');
+  const s = meta.find(m=>m.k==='syn'); if(s) CUSTOM_SYN = s.v||{};
+  // Einmalig: bestehende Rezepte automatisch verschlagworten (ergänzend, nichts wird gelöscht)
+  if(!meta.find(m=>m.k==='autotag_v1')){
+    for(const r of RECIPES){
+      const merged = mergeTags(r.tags, autoTags(r));
+      if(merged.length !== (r.tags||[]).length){ r.tags = merged; await DB.put('recipes', r); }
+    }
+    await DB.put('meta', {k:'autotag_v1', v:1});
+  }
+  // Einmalig: Tag-Schreibweise vereinheitlichen (vegetarisch/Vegetarisch → Vegetarisch)
+  if(!meta.find(m=>m.k==='tagnorm_v1')){
+    for(const r of RECIPES){
+      const before = JSON.stringify(r.tags||[]);
+      const norm = normTags(r.tags);
+      if(JSON.stringify(norm)!==before){ r.tags=norm; await DB.put('recipes', r); }
+    }
+    await DB.put('meta', {k:'tagnorm_v1', v:1});
+  }
+  renderList();
+  if('serviceWorker' in navigator){ try{ navigator.serviceWorker.register('sw.js'); }catch(e){} }
+})();
+</script>
+</body>
+</html>
