@@ -1,4 +1,4 @@
-const CACHE = 'kuechenzettel-v1';
+const CACHE = 'kuechenzettel-v2';
 const SHELL = ['./', './index.html', './manifest.json'];
 
 self.addEventListener('install', e => {
