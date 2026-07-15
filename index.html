@@ -87,6 +87,7 @@
   .card .body{padding:11px 12px 13px}
   .card h3{margin:0 0 5px;font-size:15px;line-height:1.25;letter-spacing:-.015em;font-weight:560}
   .card .meta{font-family:var(--mono);font-size:11px;color:var(--muted-2);letter-spacing:-.01em}
+  .card .ctag{display:inline-block;margin-top:7px;font-size:10px;padding:3px 9px;border-radius:999px;font-weight:500;letter-spacing:-.01em}
   .empty{
     border:1px dashed var(--line);border-radius:var(--radius);padding:34px 22px;
     text-align:center;color:var(--muted)
@@ -299,7 +300,7 @@
 /* =========================================================================
    Küchenzettel — private Rezept-App. Alles läuft im Browser, offline.
    ========================================================================= */
-const APP_VERSION = '15.07.2026 · Emaille';
+const APP_VERSION = '15.07.2026 · Emaille+Farbe';
 
 /* ---------- 1. Speicher (IndexedDB, mit Notfall-Fallback) ---------- */
 const DB = (() => {
@@ -699,12 +700,27 @@ function matches(r){
     (i.raw||'').toLowerCase().includes(q)
   );
 }
+/* Gedämpfte Farbpalette — jeder Tag bekommt verlässlich denselben Ton */
+const TAG_COLORS = [
+  ['#F3E2DA','#8C4A2F'], ['#E7EBD8','#55632E'], ['#DEEAE8','#2A5D57'],
+  ['#F6E9CE','#8A6A0C'], ['#ECE0E6','#7A4A63'], ['#E0E7EC','#3F5A6B'], ['#F0E4D6','#7E5A34']
+];
+function tagColor(name){
+  let h=0; const s=String(name||'');
+  for(let i=0;i<s.length;i++) h=(h*31+s.charCodeAt(i))>>>0;
+  return TAG_COLORS[h % TAG_COLORS.length];
+}
+
 function renderList(){
   const rs = RECIPES.filter(matches);
   $('#hcount').textContent = RECIPES.length ? rs.length+'/'+RECIPES.length : '';
   const tags = allTags();
   $('#tagchips').innerHTML = tags.length
-    ? tags.map(t=>`<button class="chip ${filterTag===t?'on':''}" data-tag="${esc(t)}">${esc(t)}</button>`).join('')
+    ? tags.map(t=>{
+        const on = filterTag===t, [bg,fg]=tagColor(t);
+        const st = on ? '' : `style="background:${bg};border-color:${bg};color:${fg}"`;
+        return `<button class="chip ${on?'on':''}" ${st} data-tag="${esc(t)}">${esc(t)}</button>`;
+      }).join('')
     : '';
   if(!RECIPES.length){
     $('#list').innerHTML = `<div class="empty"><b>Noch kein Rezept da</b>
@@ -715,14 +731,19 @@ function renderList(){
     $('#list').innerHTML = `<div class="empty"><b>Nichts gefunden</b>Andere Zutat oder anderen Namen versuchen.</div>`;
     return;
   }
-  $('#list').innerHTML = '<div class="grid">'+rs.map(r=>`
+  $('#list').innerHTML = '<div class="grid">'+rs.map(r=>{
+    const tag0 = (r.tags||[])[0];
+    const tagHtml = tag0 ? (()=>{const [bg,fg]=tagColor(tag0); return `<span class="ctag" style="background:${bg};color:${fg}">${esc(tag0)}</span>`;})() : '';
+    return `
     <button class="card" data-open="${r.id}">
       ${r.image?`<img class="thumb" src="${esc(r.image)}" alt="" loading="lazy">`:`<div class="thumb"></div>`}
       <div class="body">
         <h3>${esc(r.title)}</h3>
         <div class="meta">${r.baseServings||4} Port. · ${(r.ingredients||[]).length} Zutaten</div>
+        ${tagHtml}
       </div>
-    </button>`).join('')+'</div>';
+    </button>`;
+  }).join('')+'</div>';
 }
 
 /* ---------- 9. Rezeptansicht + Mengen-Leiste ---------- */
@@ -748,7 +769,7 @@ function renderDetail(){
     <div class="rbody">
       <h2>${esc(cur.title)}</h2>
       ${cur.source?`<div class="source">Quelle: <a href="${esc(cur.source)}" target="_blank" rel="noopener">${esc(cur.site||cur.source)}</a></div>`:''}
-      ${(cur.tags||[]).length?`<div class="tagrow">${cur.tags.map(t=>`<span class="tag">${esc(t)}</span>`).join('')}</div>`:''}
+      ${(cur.tags||[]).length?`<div class="tagrow">${cur.tags.map(t=>{const [bg,fg]=tagColor(t); return `<span class="tag" style="background:${bg};color:${fg}">${esc(t)}</span>`;}).join('')}</div>`:''}
       <h4 class="sec">Zutaten</h4>
       <ul class="ing">${ings.map(i=>`
         <li>
