@@ -312,7 +312,7 @@
 /* =========================================================================
    Küchenzettel — private Rezept-App. Alles läuft im Browser, offline.
    ========================================================================= */
-const APP_VERSION = 'v1.8 · App-Symbol · 15.07.2026';
+const APP_VERSION = 'v1.9 · Schritt-Bilder · 15.07.2026';
 
 /* ---------- 1. Speicher (IndexedDB, mit Notfall-Fallback) ---------- */
 const DB = (() => {
@@ -724,6 +724,20 @@ function stepsOf(v){
   }
   return [];
 }
+/* Bild-URL im Schritt-Text finden, entfernen und (falls Bild) abtrennen */
+function extractStepImage(text){
+  text = String(text||'');
+  const urls = text.match(/https?:\/\/[^\s]+/gi) || [];
+  let image='';
+  for(let u of urls){
+    u = u.replace(/[).,;:!]+$/,'');
+    if(!image && /\.(jpe?g|png|webp|gif|avif)(\?.*)?$/i.test(u)) image=u;
+  }
+  let clean = text.replace(/https?:\/\/[^\s]+/gi,' ')
+                  .replace(/\s+([.,;:!?])/g,'$1')
+                  .replace(/\s{2,}/g,' ').trim();
+  return {text:clean||text, image};
+}
 function imgOf(v){
   if(!v) return '';
   if(typeof v==='string') return v;
@@ -754,12 +768,17 @@ function extractRecipe(html, url){
   let time = parseDur(rec.totalTime);
   if(!time){ const c=parseDur(rec.cookTime), p=parseDur(rec.prepTime); if(c||p) time=(c||0)+(p||0); }
   const stepObjs = stepsOf(rec.recipeInstructions);
+  stepObjs.forEach(s=>{
+    const ex = extractStepImage(decodeEntities(s.text));
+    s.text = ex.text;
+    if(!s.image && ex.image) s.image = ex.image;
+  });
   const out = {
     title: decodeEntities(textOf(rec.name) || doc.title || 'Ohne Titel'),
     image: imgOf(rec.image),
     servings: yieldOf(rec.recipeYield),
     ingredients: ingLines.map(parseIngredient).filter(Boolean),
-    steps: stepObjs.map(s=>decodeEntities(s.text)),
+    steps: stepObjs.map(s=>s.text),
     stepImages: stepObjs.map(s=>s.image||''),
     source: url,
     site: (()=>{ try{ return new URL(url).hostname.replace(/^www\./,''); }catch(e){ return ''; } })(),
@@ -893,6 +912,7 @@ function renderDetail(){
     ${cur.image?`<img class="hero" src="${esc(cur.image)}" alt="">`:''}
     <div class="rbody">
       <h2>${esc(cur.title)}</h2>
+      ${cur.source?`<div class="source">Quelle: <a href="${esc(cur.source)}" target="_blank" rel="noopener">${esc(cur.site||cur.source)}</a></div>`:''}
       ${(cur.tags||[]).length?`<div class="tagrow">${cur.tags.map(t=>{const [bg,fg]=tagColor(t); return `<span class="tag" style="background:${bg};color:${fg}">${esc(t)}</span>`;}).join('')}</div>`:''}
       <h4 class="sec">Zutaten</h4>
       <ul class="ing">${ings.map(i=>`
@@ -1364,6 +1384,23 @@ document.addEventListener('visibilitychange', ()=>{
       if(JSON.stringify(norm)!==before){ r.tags=norm; await DB.put('recipes', r); }
     }
     await DB.put('meta', {k:'tagnorm_v1', v:1});
+  }
+  // Einmalig: URLs aus Schritt-Texten entfernen und Bild-URLs als Schritt-Bilder abtrennen
+  if(!meta.find(m=>m.k==='stepurl_v1')){
+    for(const r of RECIPES){
+      if(!Array.isArray(r.steps)) continue;
+      const imgs = (r.stepImages && r.stepImages.length===r.steps.length) ? [...r.stepImages] : new Array(r.steps.length).fill('');
+      let changed=false;
+      r.steps = r.steps.map((st,i)=>{
+        const ex = extractStepImage(st);
+        if(ex.text!==st) changed=true;
+        if(ex.image && !imgs[i]){ imgs[i]=ex.image; changed=true; }
+        return ex.text;
+      });
+      if(imgs.some(x=>x)) r.stepImages = imgs;
+      if(changed) await DB.put('recipes', r);
+    }
+    await DB.put('meta', {k:'stepurl_v1', v:1});
   }
   renderList();
   if('serviceWorker' in navigator){ try{ navigator.serviceWorker.register('sw.js'); }catch(e){} }
