@@ -302,7 +302,7 @@
 /* =========================================================================
    Küchenzettel — private Rezept-App. Alles läuft im Browser, offline.
    ========================================================================= */
-const APP_VERSION = '15.07.2026 · Auto-Tags';
+const APP_VERSION = 'v1.6 · Tags einheitlich · 15.07.2026';
 
 /* ---------- 1. Speicher (IndexedDB, mit Notfall-Fallback) ---------- */
 const DB = (() => {
@@ -490,13 +490,27 @@ function classifyDiet(ings){
   const tierisch= fleisch || fisch || canons.some(c=>T_TIERISCH.has(c));
   return {fleisch, fisch, vegan:!tierisch};
 }
+/* Einheitliche Schreibweise: erster Buchstabe groß, doppelte (auch nur
+   anders geschriebene) Tags werden zusammengeführt. */
+function normalizeTag(t){
+  t = String(t||'').trim().replace(/\s+/g,' ');
+  if(!t) return '';
+  return t.charAt(0).toUpperCase()+t.slice(1);
+}
+function normTags(arr){
+  const seen=new Set(), out=[];
+  (arr||[]).map(normalizeTag).filter(Boolean).forEach(t=>{
+    const k=t.toLowerCase(); if(!seen.has(k)){ seen.add(k); out.push(t); }
+  });
+  return out;
+}
 function autoTags(rec){
   const t = new Set();
   const ings = rec.ingredients||[];
   const {fleisch,fisch,vegan} = classifyDiet(ings);
-  if(fleisch) t.add('mit Fleisch');
-  if(fisch)   t.add('mit Fisch');
-  if(!fleisch && !fisch){ t.add('vegetarisch'); if(vegan) t.add('vegan'); }
+  if(fleisch) t.add('Mit Fleisch');
+  if(fisch)   t.add('Mit Fisch');
+  if(!fleisch && !fisch){ t.add('Vegetarisch'); if(vegan) t.add('Vegan'); }
   const canons = ings.map(i=>i.canon).filter(Boolean);
   if(canons.some(c=>T_PASTA.has(c))) t.add('Pasta');
   if(canons.some(c=>T_REIS.has(c)))  t.add('Reis');
@@ -509,13 +523,11 @@ function autoTags(rec){
   if(!herzhaft.some(k=>title.includes(k)) &&
      hit(['kuchen','torte','muffin','keks','plätzchen','dessert','tiramisu','pudding','mousse','waffel','brownie','cookie','crème','marmelade','kompott'])) t.add('Süßspeise');
   if(hit(['frühstück','porridge','müsli','granola','overnight'])) t.add('Frühstück');
-  if(rec.time && rec.time<=30) t.add('schnell');
-  return [...t];
+  if(rec.time && rec.time<=30) t.add('Schnell');
+  return normTags([...t]);
 }
 function mergeTags(existing, auto){
-  const set = new Set((existing||[]).filter(Boolean));
-  auto.forEach(t=>set.add(t));
-  return [...set];
+  return normTags([...(existing||[]), ...(auto||[])]);
 }
 
 const QUALIFIERS = [
@@ -1027,7 +1039,7 @@ function drawIngEdits(){
 async function saveDraft(){
   draft.title = $('#etitle').value.trim() || 'Ohne Titel';
   draft.baseServings = Math.max(1, parseInt($('#eserv').value)||4);
-  draft.tags = $('#etags').value.split(',').map(t=>t.trim()).filter(Boolean);
+  draft.tags = normTags($('#etags').value.split(',').map(t=>t.trim()).filter(Boolean));
   draft.source = $('#esrc').value.trim();
   draft.steps = $('#esteps').value.split(/\n\s*\n/).map(s=>s.trim().replace(/\n/g,' ')).filter(Boolean);
   draft.ingredients = draft.ingredients.filter(i=>i.name);
@@ -1132,12 +1144,9 @@ function viewShop(){
       <h4 class="sec">Einkaufsliste</h4>
       <pre class="shop" id="shoptext">Noch nichts ausgewählt.</pre>
       <div class="btnrow">
-        <button class="btn" id="copybox">Mit Kästchen kopieren</button>
+        <button class="btn" id="copyplain">Liste kopieren</button>
       </div>
-      <div class="btnrow">
-        <button class="btn ghost" id="copyplain">Als reine Liste kopieren</button>
-      </div>
-      <div class="note"><b>Kästchen zum Abhaken:</b> „Mit Kästchen“ setzt vor jede Zeile ein ☐. In Google Notizen (Keep) wird daraus sofort eine abhakbare Liste. In Google Docs fügst du die reine Liste ein, markierst alles und tippst auf das Checklisten-Symbol — jede Zeile wird dann ein Kästchen.</div>
+      <div class="note"><b>Abhakbare Kästchen in Google Notizen (Keep):</b> Neue Notiz öffnen, Liste einfügen, dann oben rechts über das Drei-Punkte-Menü „Kästchen anzeigen“ wählen — jede Zeile wird ein eigenes, abhakbares Kästchen. (Kästchen macht Keep selbst; die App fügt deshalb keine ein.) In Google Docs: Liste einfügen, alles markieren, auf das Checklisten-Symbol tippen.</div>
     </div>`;
   $('#picklist').onclick = e=>{
     const cb=e.target.closest('[data-p]');
@@ -1157,7 +1166,6 @@ function viewShop(){
       ta.select(); document.execCommand('copy'); ta.remove(); toast('Kopiert');
     }
   };
-  $('#copybox').onclick   = ()=>copy(shopLines.map(l=>'☐ '+l).join('\n'));
   $('#copyplain').onclick = ()=>copy(shopLines.join('\n'));
   buildShop();
 }
@@ -1263,6 +1271,10 @@ $('#tagchips').onclick = e=>{
 $('#list').addEventListener('click', e=>{
   const c=e.target.closest('[data-open]'); if(c) openRecipe(c.dataset.open);
 });
+// Beim Zurückkehren zur App neu rendern, damit Monat und Saison-Tag stimmen
+document.addEventListener('visibilitychange', ()=>{
+  if(!document.hidden && document.querySelector('nav.tabs button.on')?.dataset.tab==='list') renderList();
+});
 
 (async function boot(){
   await DB.open();
@@ -1287,6 +1299,15 @@ $('#list').addEventListener('click', e=>{
       if(merged.length !== (r.tags||[]).length){ r.tags = merged; await DB.put('recipes', r); }
     }
     await DB.put('meta', {k:'autotag_v1', v:1});
+  }
+  // Einmalig: Tag-Schreibweise vereinheitlichen (vegetarisch/Vegetarisch → Vegetarisch)
+  if(!meta.find(m=>m.k==='tagnorm_v1')){
+    for(const r of RECIPES){
+      const before = JSON.stringify(r.tags||[]);
+      const norm = normTags(r.tags);
+      if(JSON.stringify(norm)!==before){ r.tags=norm; await DB.put('recipes', r); }
+    }
+    await DB.put('meta', {k:'tagnorm_v1', v:1});
   }
   renderList();
   if('serviceWorker' in navigator){ try{ navigator.serviceWorker.register('sw.js'); }catch(e){} }
