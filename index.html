@@ -7,6 +7,8 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
 <meta name="theme-color" content="#0F3F3E">
 <link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="icon-512.png">
+<link rel="icon" type="image/png" href="icon-512.png">
 <title>Küchenzettel</title>
 <style>
   :root{
@@ -196,13 +198,21 @@
   #cook{background:#0D1113;color:#F2F1EC}
   #cook .sheetbar{background:#0D1113;border-color:#22282A}
   #cook .iconbtn{background:#1A2022;border-color:#2B3234;color:#F2F1EC}
-  .cookwrap{padding:20px var(--pad) 40px}
-  .cookstep{font-size:24px;line-height:1.45;letter-spacing:-.01em;min-height:32vh}
+  .cookwrap{padding:20px var(--pad) calc(110px + var(--safe-b))}
+  .cookstep{font-size:24px;line-height:1.45;letter-spacing:-.01em}
   .cookcount{font-family:var(--mono);font-size:12px;color:#8FA09B;letter-spacing:.08em;margin-bottom:14px}
+  .imgtoggle{
+    margin-top:18px;background:#1A2022;border:1px solid #2B3234;color:#F2CF7E;
+    padding:10px 14px;border-radius:11px;font-size:14px;font-weight:600;
+  }
+  .cookimg{width:100%;border-radius:14px;margin-top:12px;display:block}
   .cooking-ing{border-top:1px solid #22282A;margin-top:26px;padding-top:14px}
+  .cookcount-row{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:10px}
+  .allbtn{color:#F2CF7E;font-size:13px;font-weight:600;padding:4px 6px;white-space:nowrap}
   .cooking-ing label{display:flex;gap:11px;align-items:baseline;padding:9px 0;font-size:16px}
   .cooking-ing input{accent-color:var(--signal);width:20px;height:20px;flex:none}
   .cooking-ing .qty{color:#F2CF7E;min-width:74px}
+  .cooknone{color:#8FA09B;font-size:14px;line-height:1.5;padding:6px 0}
   .cooknav{
     position:fixed;bottom:0;left:0;right:0;display:flex;gap:10px;padding:12px var(--pad) calc(12px + var(--safe-b));
     background:#0D1113;border-top:1px solid #22282A;
@@ -302,7 +312,7 @@
 /* =========================================================================
    Küchenzettel — private Rezept-App. Alles läuft im Browser, offline.
    ========================================================================= */
-const APP_VERSION = 'v1.6 · Tags einheitlich · 15.07.2026';
+const APP_VERSION = 'v1.8 · App-Symbol · 15.07.2026';
 
 /* ---------- 1. Speicher (IndexedDB, mit Notfall-Fallback) ---------- */
 const DB = (() => {
@@ -697,19 +707,20 @@ function textOf(v){
   return '';
 }
 function stepsOf(v){
+  // Gibt [{text, image}] zurück
   if(!v) return [];
   if(typeof v==='string'){
-    return v.split(/\n+|(?<=\.)\s{2,}/).map(s=>s.trim()).filter(s=>s.length>2);
+    return v.split(/\n+|(?<=\.)\s{2,}/).map(s=>s.trim()).filter(s=>s.length>2).map(t=>({text:t, image:''}));
   }
   if(Array.isArray(v)){
     let out=[];
     v.forEach(i=>{
-      if(typeof i==='string') out.push(i.trim());
+      if(typeof i==='string'){ if(i.trim().length>2) out.push({text:i.trim(), image:''}); }
       else if(i['@type']==='HowToSection' && i.itemListElement) out=out.concat(stepsOf(i.itemListElement));
-      else if(i.text) out.push(String(i.text).trim());
-      else if(i.name) out.push(String(i.name).trim());
+      else if(i.text){ out.push({text:String(i.text).trim(), image:imgOf(i.image)}); }
+      else if(i.name){ out.push({text:String(i.name).trim(), image:imgOf(i.image)}); }
     });
-    return out.filter(s=>s.length>2);
+    return out.filter(s=>s.text.length>2);
   }
   return [];
 }
@@ -742,17 +753,20 @@ function extractRecipe(html, url){
   const ingLines = (rec.recipeIngredient||rec.ingredients||[]).map(textOf).map(decodeEntities).filter(Boolean);
   let time = parseDur(rec.totalTime);
   if(!time){ const c=parseDur(rec.cookTime), p=parseDur(rec.prepTime); if(c||p) time=(c||0)+(p||0); }
+  const stepObjs = stepsOf(rec.recipeInstructions);
   const out = {
     title: decodeEntities(textOf(rec.name) || doc.title || 'Ohne Titel'),
     image: imgOf(rec.image),
     servings: yieldOf(rec.recipeYield),
     ingredients: ingLines.map(parseIngredient).filter(Boolean),
-    steps: stepsOf(rec.recipeInstructions).map(decodeEntities),
+    steps: stepObjs.map(s=>decodeEntities(s.text)),
+    stepImages: stepObjs.map(s=>s.image||''),
     source: url,
     site: (()=>{ try{ return new URL(url).hostname.replace(/^www\./,''); }catch(e){ return ''; } })(),
     time: time||null,
     tags: []
   };
+  if(out.stepImages.every(x=>!x)) out.stepImages = [];   // keine Schritt-Bilder vorhanden
   out.tags = autoTags(out);   // automatisch verschlagworten
   return out;
 }
@@ -879,7 +893,6 @@ function renderDetail(){
     ${cur.image?`<img class="hero" src="${esc(cur.image)}" alt="">`:''}
     <div class="rbody">
       <h2>${esc(cur.title)}</h2>
-      ${cur.source?`<div class="source">Quelle: <a href="${esc(cur.source)}" target="_blank" rel="noopener">${esc(cur.site||cur.source)}</a></div>`:''}
       ${(cur.tags||[]).length?`<div class="tagrow">${cur.tags.map(t=>{const [bg,fg]=tagColor(t); return `<span class="tag" style="background:${bg};color:${fg}">${esc(t)}</span>`;}).join('')}</div>`:''}
       <h4 class="sec">Zutaten</h4>
       <ul class="ing">${ings.map(i=>`
@@ -911,11 +924,34 @@ function renderDetail(){
 }
 
 /* ---------- 10. Kochmodus ---------- */
-let wake=null, cookStep=0;
+let wake=null, cookStep=0, cookAllIngs=false, cookShowImg=false;
+
+/* Welche Zutaten nennt dieser Schritt? Heuristik über Namens-/canon-Treffer. */
+function ingsForStep(stepText, ings){
+  const s = ' '+(stepText||'').toLowerCase()+' ';
+  return ings.filter(i=>{
+    const cands = new Set();
+    if(i.canon) cands.add(i.canon.toLowerCase());
+    if(i.name){ cands.add(i.name.toLowerCase()); (i.name.toLowerCase().split(/\s+/)).forEach(w=>{ if(w.length>=4) cands.add(w); }); }
+    for(let c of cands){
+      c = c.replace(/[.,;:!*()]/g,'').trim();
+      if(c.length<4) continue;
+      // Wortstamm: Zutat kommt als Wortanfang vor (Zwiebel -> Zwiebeln)
+      const stem = c.length>6 ? c.slice(0,c.length-1) : c;
+      if(s.includes(' '+stem) || s.includes(stem)) return true;
+    }
+    return false;
+  });
+}
+
 async function openCook(ings){
-  cookStep=0;
+  cookStep=0; cookShowImg=false;
   const steps = (cur.steps||[]).length?cur.steps:['Keine Schritte gespeichert.'];
+  const stepImgs = cur.stepImages||[];
   const draw=()=>{
+    const img = stepImgs[cookStep];
+    const stepIngs = cookAllIngs ? ings : ingsForStep(steps[cookStep], ings);
+    const shown = stepIngs.length ? stepIngs : (cookAllIngs ? ings : []);
     $('#cook').innerHTML = `
       <div class="sheetbar">
         <button class="iconbtn" id="cclose">✕ Beenden</button>
@@ -924,9 +960,18 @@ async function openCook(ings){
       <div class="cookwrap">
         <div class="cookcount">SCHRITT ${cookStep+1} VON ${steps.length}</div>
         <div class="cookstep">${esc(steps[cookStep])}</div>
+        ${img?`
+          <button class="imgtoggle" id="cimg">${cookShowImg?'Bild ausblenden':'Bild anzeigen'}</button>
+          ${cookShowImg?`<img class="cookimg" src="${esc(img)}" alt="">`:''}
+        `:''}
         <div class="cooking-ing">
-          <div class="cookcount">ZUTATEN · ${curServ} PORTIONEN</div>
-          ${ings.map((i,n)=>`<label><input type="checkbox" data-c="${n}"><span class="qty">${esc(fmtQty(i))}</span><span>${esc(i.canon||i.name)}</span></label>`).join('')}
+          <div class="cookcount-row">
+            <span class="cookcount" style="margin:0">ZUTATEN${cookAllIngs?'':' FÜR DIESEN SCHRITT'} · ${curServ} PORT.</span>
+            <button class="allbtn" id="callings">${cookAllIngs?'nur diesen Schritt':'alle anzeigen'}</button>
+          </div>
+          ${shown.length
+            ? shown.map(i=>`<label><input type="checkbox"><span class="qty">${esc(fmtQty(i))}</span><span>${esc(i.canon||i.name)}</span></label>`).join('')
+            : `<div class="cooknone">Für diesen Schritt keine Zutat erkannt. <span style="text-decoration:underline">Alle anzeigen</span> tippen, um die ganze Liste zu sehen.</div>`}
         </div>
       </div>
       <div class="cooknav">
@@ -934,11 +979,15 @@ async function openCook(ings){
         <button class="next" id="cnext">${cookStep===steps.length-1?'Fertig':'Weiter'}</button>
       </div>`;
     $('#cclose').onclick = closeCook;
-    $('#cprev').onclick = ()=>{ if(cookStep>0){cookStep--; draw();} };
-    $('#cnext').onclick = ()=>{ if(cookStep<steps.length-1){cookStep++; draw(); $('#cook').scrollTop=0;} else closeCook(); };
+    $('#cprev').onclick = ()=>{ if(cookStep>0){cookStep--; cookShowImg=false; draw(); $('#cook').scrollTop=0;} };
+    $('#cnext').onclick = ()=>{ if(cookStep<steps.length-1){cookStep++; cookShowImg=false; draw(); $('#cook').scrollTop=0;} else closeCook(); };
+    const ib=$('#cimg'); if(ib) ib.onclick = ()=>{ cookShowImg=!cookShowImg; draw(); };
+    const ab=$('#callings'); if(ab) ab.onclick = ()=>{ cookAllIngs=!cookAllIngs; draw(); };
+    const nn=$('.cooknone'); if(nn) nn.onclick = ()=>{ cookAllIngs=true; draw(); };
   };
   draw();
   $('#cook').classList.remove('hide');
+  $('#cook').scrollTop=0;
   try{ if('wakeLock' in navigator) wake = await navigator.wakeLock.request('screen'); }catch(e){}
 }
 function closeCook(){
@@ -1100,6 +1149,10 @@ function viewImport(){
       if(!rec) throw new Error('Auf dieser Seite steckt kein maschinenlesbares Rezept. Nimm den Quelltext-Weg oder leg es von Hand an.');
       st.innerHTML='<span class="spin"></span>Bild wird gespeichert…';
       rec.image = await imageToData(rec.image);
+      if(rec.stepImages && rec.stepImages.length){
+        st.innerHTML='<span class="spin"></span>Schritt-Bilder werden gespeichert…';
+        rec.stepImages = await Promise.all(rec.stepImages.map(u=>u?imageToData(u):Promise.resolve('')));
+      }
       st.className='status on ok'; st.textContent='Gefunden: '+rec.title;
       rec.baseServings = rec.servings||4;
       openEditor(rec, true);
@@ -1114,6 +1167,9 @@ function viewImport(){
       const rec = extractRecipe(html, url||'');
       if(!rec) throw new Error('Im Quelltext steckt kein Rezept im erwarteten Format.');
       rec.image = await imageToData(rec.image);
+      if(rec.stepImages && rec.stepImages.length){
+        rec.stepImages = await Promise.all(rec.stepImages.map(u=>u?imageToData(u):Promise.resolve('')));
+      }
       rec.baseServings = rec.servings||4;
       st.className='status on ok'; st.textContent='Gefunden: '+rec.title;
       openEditor(rec, true);
