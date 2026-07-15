@@ -72,6 +72,8 @@
   }
   .chip:active{transform:scale(.95)}
   .chip.on{background:var(--deep);border-color:var(--deep);color:#fff;font-weight:600}
+  .chip.season{border-color:#C0DD97;color:#3B6D11;font-weight:560}
+  .chip.season.on{background:#3B6D11;border-color:#3B6D11;color:#fff}
 
   /* ---------- Liste ---------- */
   main{padding:var(--pad)}
@@ -300,7 +302,7 @@
 /* =========================================================================
    Küchenzettel — private Rezept-App. Alles läuft im Browser, offline.
    ========================================================================= */
-const APP_VERSION = '15.07.2026 · Emaille+Farbe';
+const APP_VERSION = '15.07.2026 · Auto-Tags';
 
 /* ---------- 1. Speicher (IndexedDB, mit Notfall-Fallback) ---------- */
 const DB = (() => {
@@ -432,6 +434,9 @@ const SYN = {
   'wasser':'Wasser','wein':'Weißwein','weißwein':'Weißwein','rotwein':'Rotwein',
   'zitrone':'Zitrone','zitronen':'Zitrone','zitronensaft':'Zitronensaft','limette':'Limette','limetten':'Limette',
   'orange':'Orange','apfel':'Apfel','äpfel':'Apfel','banane':'Banane','bananen':'Banane',
+  'spargel':'Spargel','erdbeere':'Erdbeere','erdbeeren':'Erdbeere','rhabarber':'Rhabarber',
+  'birne':'Birne','birnen':'Birne','kirsche':'Kirsche','kirschen':'Kirsche',
+  'pflaume':'Pflaume','pflaumen':'Pflaume','zwetschge':'Pflaume','zwetschgen':'Pflaume',
   'sojasauce':'Sojasauce','sojasoße':'Sojasauce','essig':'Essig','balsamico':'Balsamico',
   'weißweinessig':'Weißweinessig','senf':'Senf','ketchup':'Ketchup','mandeln':'Mandeln','walnüsse':'Walnüsse',
   'haselnüsse':'Haselnüsse','pinienkerne':'Pinienkerne','cashews':'Cashewkerne','sesam':'Sesam',
@@ -439,6 +444,79 @@ const SYN = {
   'tofu':'Tofu','rosinen':'Rosinen'
 };
 let CUSTOM_SYN = {};   // vom Nutzer gelernte Zuordnungen
+
+/* Saison in Mitteleuropa (Freiland, grob). Monate 1–12. Grundzutaten
+   (Mehl, Zwiebel, Kartoffel …) und Importobst stehen bewusst nicht drin —
+   sie sind ganzjährig zu haben und würden den Saisonfilter verwässern. */
+const SAISON = {
+  'Spargel':[4,5,6], 'Erdbeere':[5,6,7], 'Rhabarber':[4,5,6],
+  'Tomate':[6,7,8,9,10], 'Zucchini':[6,7,8,9,10], 'Aubergine':[7,8,9,10],
+  'Paprika':[7,8,9,10], 'Gurke':[5,6,7,8,9], 'Kürbis':[9,10,11,12],
+  'Brokkoli':[6,7,8,9,10], 'Blumenkohl':[6,7,8,9,10,11], 'Rosenkohl':[10,11,12,1,2],
+  'Spinat':[3,4,5,9,10,11], 'Karotte':[6,7,8,9,10,11], 'Lauch':[1,2,3,9,10,11,12],
+  'Fenchel':[6,7,8,9,10,11], 'Sellerie':[8,9,10,11,12], 'Kohlrabi':[5,6,7,8,9,10],
+  'Weißkohl':[6,7,8,9,10,11,12,1,2,3], 'Rotkohl':[9,10,11,12,1,2], 'Spitzkohl':[5,6,7,8],
+  'Erbsen':[6,7], 'Bohnen':[7,8,9,10], 'Mais':[8,9,10],
+  'Rote Bete':[6,7,8,9,10,11,12], 'Radieschen':[3,4,5,6,7,8,9,10],
+  'Rucola':[4,5,6,7,8,9,10], 'Salat':[5,6,7,8,9,10],
+  'Apfel':[8,9,10,11], 'Birne':[8,9,10], 'Kirsche':[6,7], 'Pflaume':[8,9]
+};
+const MONTH_NAMES = ['Januar','Februar','März','April','Mai','Juni','Juli',
+  'August','September','Oktober','November','Dezember'];
+
+/* ---------- Automatische Tags (festes Vokabular für Vergleichbarkeit) ----------
+   Abgeleitet aus Zutaten, Titel und Kochzeit. Immer dieselben Begriffe.       */
+const T_FLEISCH = new Set(['Hähnchen','Hähnchenbrust','Hackfleisch','Rindfleisch','Schweinefleisch','Speck','Schinken','Pancetta','Chorizo']);
+const T_FISCH   = new Set(['Lachs','Thunfisch','Garnelen']);
+const T_TIERISCH= new Set(['Ei','Eigelb','Eiweiß','Milch','Sahne','Butter','Käse','Parmesan','Mozzarella','Feta','Gouda','Cheddar','Reibekäse','Joghurt','Quark','Schmand','Crème fraîche','Saure Sahne','Frischkäse','Honig']);
+const T_PASTA   = new Set(['Nudeln','Spaghetti','Penne','Tagliatelle']);
+const T_REIS    = new Set(['Reis','Risottoreis']);
+// Text-Fallback für nicht katalogisierte Zutaten — bewusst lange, eindeutige Wörter
+const T_FLEISCH_KW = ['fleisch','hähnchen','hühnchen','pute','schnitzel','speck','bacon','schinken','wurst','salami','chorizo','pancetta','lamm','kalb','kassler','geflügel','frikadelle','bolognese'];
+const T_FISCH_KW   = ['lachs','thunfisch','forelle','kabeljau','dorsch','garnele','scampi','fischfilet','hering','makrele','sardine','tintenfisch','muschel','meeresfrücht','shrimp'];
+
+function parseDur(s){
+  if(!s || typeof s!=='string') return null;
+  const m = s.match(/P(?:T(?:(\d+)H)?(?:(\d+)M)?)?/);
+  if(!m) return null;
+  const min = (parseInt(m[1]||0)*60)+parseInt(m[2]||0);
+  return min>0 ? min : null;
+}
+function classifyDiet(ings){
+  const canons = ings.map(i=>i.canon).filter(Boolean);
+  const texts  = ings.map(i=>((i.canon||'')+' '+(i.name||'')+' '+(i.raw||'')).toLowerCase());
+  const fleisch = canons.some(c=>T_FLEISCH.has(c)) || texts.some(t=>T_FLEISCH_KW.some(k=>t.includes(k)));
+  const fisch   = canons.some(c=>T_FISCH.has(c))   || texts.some(t=>T_FISCH_KW.some(k=>t.includes(k)));
+  const tierisch= fleisch || fisch || canons.some(c=>T_TIERISCH.has(c));
+  return {fleisch, fisch, vegan:!tierisch};
+}
+function autoTags(rec){
+  const t = new Set();
+  const ings = rec.ingredients||[];
+  const {fleisch,fisch,vegan} = classifyDiet(ings);
+  if(fleisch) t.add('mit Fleisch');
+  if(fisch)   t.add('mit Fisch');
+  if(!fleisch && !fisch){ t.add('vegetarisch'); if(vegan) t.add('vegan'); }
+  const canons = ings.map(i=>i.canon).filter(Boolean);
+  if(canons.some(c=>T_PASTA.has(c))) t.add('Pasta');
+  if(canons.some(c=>T_REIS.has(c)))  t.add('Reis');
+  const title = (rec.title||'').toLowerCase();
+  const hit = arr => arr.some(k=>title.includes(k));
+  if(hit(['suppe','eintopf','ragout','cremesuppe'])) t.add('Suppe');
+  if(hit(['salat'])) t.add('Salat');
+  if(hit(['auflauf','gratin','lasagne','überbacken','quiche','flammkuchen','zwiebelkuchen'])) t.add('Auflauf');
+  const herzhaft = ['zwiebelkuchen','pfannkuchen','gemüsekuchen','lauchkuchen','flammkuchen'];
+  if(!herzhaft.some(k=>title.includes(k)) &&
+     hit(['kuchen','torte','muffin','keks','plätzchen','dessert','tiramisu','pudding','mousse','waffel','brownie','cookie','crème','marmelade','kompott'])) t.add('Süßspeise');
+  if(hit(['frühstück','porridge','müsli','granola','overnight'])) t.add('Frühstück');
+  if(rec.time && rec.time<=30) t.add('schnell');
+  return [...t];
+}
+function mergeTags(existing, auto){
+  const set = new Set((existing||[]).filter(Boolean));
+  auto.forEach(t=>set.add(t));
+  return [...set];
+}
 
 const QUALIFIERS = [
   'frisch','frische','frischer','frisches','frischen','getrocknet','getrocknete','getrockneter','getrocknetes',
@@ -650,7 +728,9 @@ function extractRecipe(html, url){
   }
   if(!rec) return null;
   const ingLines = (rec.recipeIngredient||rec.ingredients||[]).map(textOf).map(decodeEntities).filter(Boolean);
-  return {
+  let time = parseDur(rec.totalTime);
+  if(!time){ const c=parseDur(rec.cookTime), p=parseDur(rec.prepTime); if(c||p) time=(c||0)+(p||0); }
+  const out = {
     title: decodeEntities(textOf(rec.name) || doc.title || 'Ohne Titel'),
     image: imgOf(rec.image),
     servings: yieldOf(rec.recipeYield),
@@ -658,8 +738,11 @@ function extractRecipe(html, url){
     steps: stepsOf(rec.recipeInstructions).map(decodeEntities),
     source: url,
     site: (()=>{ try{ return new URL(url).hostname.replace(/^www\./,''); }catch(e){ return ''; } })(),
+    time: time||null,
     tags: []
   };
+  out.tags = autoTags(out);   // automatisch verschlagworten
+  return out;
 }
 async function imageToData(url){
   if(!url) return '';
@@ -676,7 +759,7 @@ async function imageToData(url){
 }
 
 /* ---------- 7. Zustand & Hilfsfunktionen ---------- */
-let RECIPES=[], filterTag=null, query='';
+let RECIPES=[], filterTag=null, filterSeason=false, query='';
 const $ = s=>document.querySelector(s);
 const esc = s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const uid = ()=>Date.now().toString(36)+Math.random().toString(36).slice(2,7);
@@ -687,10 +770,21 @@ function toast(msg){
 async function saveRecipe(r){ await DB.put('recipes', r); const i=RECIPES.findIndex(x=>x.id===r.id); i>=0?RECIPES[i]=r:RECIPES.unshift(r); }
 async function saveSyn(){ await DB.put('meta',{k:'syn', v:CUSTOM_SYN}); }
 
+/* Hat das Rezept jetzt Saison? Es zählen nur saison-relevante Zutaten;
+   die Mehrheit davon muss im aktuellen Monat Saison haben. */
+function isSeasonal(r){
+  const month = new Date().getMonth()+1;
+  const rel = (r.ingredients||[]).map(i=>i.canon).filter(c=>c && SAISON[c]);
+  if(!rel.length) return false;
+  const good = rel.filter(c=>SAISON[c].includes(month)).length;
+  return good>=1 && good >= Math.ceil(rel.length/2);
+}
+
 /* ---------- 8. Rezeptliste ---------- */
 function allTags(){ return [...new Set(RECIPES.flatMap(r=>r.tags||[]))].sort((a,b)=>a.localeCompare(b,'de')); }
 function matches(r){
   if(filterTag && !(r.tags||[]).includes(filterTag)) return false;
+  if(filterSeason && !isSeasonal(r)) return false;
   if(!query) return true;
   const q = query.toLowerCase().trim();
   if(r.title.toLowerCase().includes(q)) return true;
@@ -715,20 +809,25 @@ function renderList(){
   const rs = RECIPES.filter(matches);
   $('#hcount').textContent = RECIPES.length ? rs.length+'/'+RECIPES.length : '';
   const tags = allTags();
-  $('#tagchips').innerHTML = tags.length
-    ? tags.map(t=>{
-        const on = filterTag===t, [bg,fg]=tagColor(t);
-        const st = on ? '' : `style="background:${bg};border-color:${bg};color:${fg}"`;
-        return `<button class="chip ${on?'on':''}" ${st} data-tag="${esc(t)}">${esc(t)}</button>`;
-      }).join('')
+  const month = new Date().getMonth()+1;
+  const seasonChip = RECIPES.length
+    ? `<button class="chip season ${filterSeason?'on':''}" data-season="1">Saison · ${MONTH_NAMES[month-1]}</button>`
     : '';
+  const tagChips = tags.map(t=>{
+    const on = filterTag===t, [bg,fg]=tagColor(t);
+    const st = on ? '' : `style="background:${bg};border-color:${bg};color:${fg}"`;
+    return `<button class="chip ${on?'on':''}" ${st} data-tag="${esc(t)}">${esc(t)}</button>`;
+  }).join('');
+  $('#tagchips').innerHTML = seasonChip + tagChips;
   if(!RECIPES.length){
     $('#list').innerHTML = `<div class="empty"><b>Noch kein Rezept da</b>
       Tippe unten auf „Hinzufügen“ und füge die Adresse einer Rezeptseite ein.</div>`;
     return;
   }
   if(!rs.length){
-    $('#list').innerHTML = `<div class="empty"><b>Nichts gefunden</b>Andere Zutat oder anderen Namen versuchen.</div>`;
+    $('#list').innerHTML = filterSeason
+      ? `<div class="empty"><b>Nichts für ${MONTH_NAMES[month-1]}</b>Kein Rezept mit überwiegend saisonalen Zutaten. Tippe „Saison“ erneut, um den Filter zu lösen.</div>`
+      : `<div class="empty"><b>Nichts gefunden</b>Andere Zutat oder anderen Namen versuchen.</div>`;
     return;
   }
   $('#list').innerHTML = '<div class="grid">'+rs.map(r=>{
@@ -1014,6 +1113,7 @@ function viewImport(){
 }
 
 let picked = new Set();
+let shopLines = [];
 function viewShop(){
   if(!RECIPES.length){ $('#list').innerHTML='<div class="empty"><b>Erst Rezepte, dann Einkauf</b>Füge ein Rezept hinzu.</div>'; return; }
   $('#list').innerHTML = `
@@ -1032,9 +1132,12 @@ function viewShop(){
       <h4 class="sec">Einkaufsliste</h4>
       <pre class="shop" id="shoptext">Noch nichts ausgewählt.</pre>
       <div class="btnrow">
-        <button class="btn" id="copyshop">Liste kopieren</button>
+        <button class="btn" id="copybox">Mit Kästchen kopieren</button>
       </div>
-      <div class="note">Kopieren und in deine Google-Notiz einfügen.</div>
+      <div class="btnrow">
+        <button class="btn ghost" id="copyplain">Als reine Liste kopieren</button>
+      </div>
+      <div class="note"><b>Kästchen zum Abhaken:</b> „Mit Kästchen“ setzt vor jede Zeile ein ☐. In Google Notizen (Keep) wird daraus sofort eine abhakbare Liste. In Google Docs fügst du die reine Liste ein, markierst alles und tippst auf das Checklisten-Symbol — jede Zeile wird dann ein Kästchen.</div>
     </div>`;
   $('#picklist').onclick = e=>{
     const cb=e.target.closest('[data-p]');
@@ -1046,14 +1149,16 @@ function viewShop(){
       SERV[id]=v; document.getElementById('ps-'+id).textContent=v; buildShop();
     }
   };
-  $('#copyshop').onclick = async ()=>{
-    const t=$('#shoptext').textContent;
-    try{ await navigator.clipboard.writeText(t); toast('Kopiert'); }
+  const copy = async (text)=>{
+    if(!text){ toast('Nichts ausgewählt'); return; }
+    try{ await navigator.clipboard.writeText(text); toast('Kopiert'); }
     catch(e){
-      const ta=document.createElement('textarea'); ta.value=t; document.body.appendChild(ta);
+      const ta=document.createElement('textarea'); ta.value=text; document.body.appendChild(ta);
       ta.select(); document.execCommand('copy'); ta.remove(); toast('Kopiert');
     }
   };
+  $('#copybox').onclick   = ()=>copy(shopLines.map(l=>'☐ '+l).join('\n'));
+  $('#copyplain').onclick = ()=>copy(shopLines.join('\n'));
   buildShop();
 }
 const SERV={};
@@ -1062,7 +1167,7 @@ const servFor = r=> SERV[r.id] ?? (r.baseServings||4);
 function buildShop(){
   const box=$('#shoptext'); if(!box) return;
   const rs = RECIPES.filter(r=>picked.has(r.id));
-  if(!rs.length){ box.textContent='Noch nichts ausgewählt.'; return; }
+  if(!rs.length){ box.textContent='Noch nichts ausgewählt.'; shopLines=[]; return; }
   const bag = {}; // key: canon|typ
   rs.forEach(r=>{
     const f = servFor(r)/(r.baseServings||4);
@@ -1084,6 +1189,7 @@ function buildShop(){
     else amt = amt>=10?Math.round(amt):Math.round(amt*10)/10;
     return `${fmtNum(amt)}${unit?' '+unit:''} ${b.name}`.trim();
   });
+  shopLines = lines;
   box.textContent = lines.join('\n');
 }
 
@@ -1099,6 +1205,11 @@ function viewSettings(){
         <button class="btn ghost" id="simp">Sicherung einlesen</button>
         <input type="file" id="sfile" accept="application/json" hidden>
       </div>
+      <h4 class="sec">Automatische Tags</h4>
+      <div class="note" style="margin-top:0">Ergänzt bei allen Rezepten die einheitlichen Tags (Ernährung, Gericht-Art, Pasta/Reis, schnell). Selbst gesetzte Tags bleiben erhalten.</div>
+      <div class="btnrow" style="margin-top:12px">
+        <button class="btn ghost" id="sretag">Tags jetzt ergänzen</button>
+      </div>
       <h4 class="sec">Status</h4>
       <div class="note">
         <b style="color:var(--deep)">App-Stand: ${APP_VERSION}</b><br>
@@ -1106,6 +1217,15 @@ function viewSettings(){
         Speicher: ${DB.isMem()?'<b style="color:#B3402A">nur flüchtig — dieser Browser erlaubt keinen dauerhaften Speicher</b>':'dauerhaft im Browser'}
       </div>
     </div>`;
+  $('#sretag').onclick = async ()=>{
+    let changed=0;
+    for(const r of RECIPES){
+      const merged = mergeTags(r.tags, autoTags(r));
+      if(merged.length !== (r.tags||[]).length){ r.tags=merged; await DB.put('recipes', r); changed++; }
+    }
+    toast(changed ? changed+' Rezepte ergänzt' : 'Alles schon getaggt');
+    renderList();
+  };
   $('#sexp').onclick = ()=>{
     const data = JSON.stringify({v:1, recipes:RECIPES, syn:CUSTOM_SYN}, null, 1);
     const a = document.createElement('a');
@@ -1134,6 +1254,8 @@ document.querySelector('nav.tabs').onclick = e=>{
 };
 $('#q').oninput = e=>{ query=e.target.value; renderList(); };
 $('#tagchips').onclick = e=>{
+  const s=e.target.closest('[data-season]');
+  if(s){ filterSeason=!filterSeason; renderList(); return; }
   const c=e.target.closest('[data-tag]'); if(!c) return;
   filterTag = filterTag===c.dataset.tag ? null : c.dataset.tag;
   renderList();
@@ -1158,6 +1280,14 @@ $('#list').addEventListener('click', e=>{
   RECIPES.sort((a,b)=>(b.added||0)-(a.added||0));
   const meta = await DB.all('meta');
   const s = meta.find(m=>m.k==='syn'); if(s) CUSTOM_SYN = s.v||{};
+  // Einmalig: bestehende Rezepte automatisch verschlagworten (ergänzend, nichts wird gelöscht)
+  if(!meta.find(m=>m.k==='autotag_v1')){
+    for(const r of RECIPES){
+      const merged = mergeTags(r.tags, autoTags(r));
+      if(merged.length !== (r.tags||[]).length){ r.tags = merged; await DB.put('recipes', r); }
+    }
+    await DB.put('meta', {k:'autotag_v1', v:1});
+  }
   renderList();
   if('serviceWorker' in navigator){ try{ navigator.serviceWorker.register('sw.js'); }catch(e){} }
 })();
