@@ -312,7 +312,7 @@
 /* =========================================================================
    Küchenzettel — private Rezept-App. Alles läuft im Browser, offline.
    ========================================================================= */
-const APP_VERSION = 'v1.9 · Schritt-Bilder · 15.07.2026';
+const APP_VERSION = 'v2.0 · Foto-Import · 08.11.2026';
 
 /* ---------- 1. Speicher (IndexedDB, mit Notfall-Fallback) ---------- */
 const DB = (() => {
@@ -1132,10 +1132,93 @@ function setTab(t){
   if(t==='shop') viewShop();
   if(t==='settings') viewSettings();
 }
+/* ---------- Foto-Import: Texterkennung im Browser (Tesseract.js) ---------- */
+function loadTesseract(){
+  if(window.Tesseract) return Promise.resolve();
+  return new Promise((res,rej)=>{
+    const s=document.createElement('script');
+    s.src='https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js';
+    s.onload=()=>res();
+    s.onerror=()=>rej(new Error('Die Texterkennung konnte nicht geladen werden. Beim ersten Mal ist dafür Internet nötig.'));
+    document.head.appendChild(s);
+  });
+}
+async function ocrImages(files, onStep){
+  await loadTesseract();
+  const worker = await Tesseract.createWorker('deu');
+  const texts=[];
+  try{
+    for(let i=0;i<files.length;i++){
+      if(onStep) onStep(i+1, files.length);
+      const { data:{ text } } = await worker.recognize(files[i]);
+      texts.push(text||'');
+    }
+  } finally { try{ await worker.terminate(); }catch(e){} }
+  return texts;
+}
+/* Zeilen aus mehreren Bildern zusammenführen, exakte Doppelzeilen (Überlappung) entfernen */
+function mergeOcrLines(texts){
+  const seen=new Set(), out=[];
+  for(const t of texts){
+    for(let line of String(t).split(/\r?\n/)){
+      line = line.replace(/\s+/g,' ').trim();
+      if(!line) continue;
+      const key = line.toLowerCase().replace(/[^a-zäöüß0-9]/g,'');
+      if(key.length>=3 && seen.has(key)) continue;
+      if(key.length>=3) seen.add(key);
+      out.push(line);
+    }
+  }
+  return out;
+}
+function looksLikeIngredientLine(line){
+  if(line.length>90) return false;
+  const p = parseIngredient(line);
+  if(p && p.amount!==null) return true;
+  if(p && p.canon) return true;
+  if(/(^|\s)(g|kg|ml|l|el|tl|prise|stück|stk|dose|bund|packung|zehen?)(\s|$)/i.test(line) && line.split(' ').length<=6) return true;
+  return false;
+}
+/* Rohen Text (aus Fotos) in Titel / Zutaten / Schritte aufteilen — Heuristik */
+function parseRawText(text){
+  const lines = String(text||'').split(/\r?\n/).map(l=>l.replace(/\s+/g,' ').trim()).filter(Boolean);
+  const ingMark  = /^(zutaten|du brauchst|das brauchst du|ingredients|einkaufs)/i;
+  const stepMark = /^(zubereitung|anleitung|zubereiten|so geht|so wird|so gehts|und so|instructions|method|schritte|los geht)/i;
+  let mode='head'; const head=[], ingL=[], stepL=[];
+  for(const line of lines){
+    if(ingMark.test(line)){ mode='ing'; continue; }
+    if(stepMark.test(line)){ mode='step'; continue; }
+    (mode==='head'?head:mode==='ing'?ingL:stepL).push(line);
+  }
+  let title='', ingLines=[], stepLines=[];
+  if(ingL.length || stepL.length){
+    title = head.find(l=>l.length>=3) || 'Neues Rezept';
+    ingLines = ingL; stepLines = stepL;
+  } else {
+    title = head[0] || 'Neues Rezept';
+    for(const line of head.slice(1)) (looksLikeIngredientLine(line) ? ingLines : stepLines).push(line);
+  }
+  const steps = stepLines.map(s=>s.replace(/^\s*(?:schritt\s*)?\d+[.):]\s*/i,'').replace(/^[•\-–*]\s*/,'').trim()).filter(s=>s.length>1);
+  const out = {
+    title: title.replace(/^[•\-–*]\s*/,'').trim() || 'Neues Rezept',
+    image:'', baseServings:4,
+    ingredients: ingLines.map(l=>l.replace(/^[•\-–*]\s*/,'')).map(parseIngredient).filter(Boolean),
+    steps, stepImages:[], source:'', site:'', time:null, tags:[]
+  };
+  out.tags = autoTags(out);
+  return out;
+}
+
 function viewImport(){
   $('#list').innerHTML = `
     <div class="form" style="padding:0">
-      <h4 class="sec" style="margin-top:8px">Rezept von einer Website</h4>
+      <h4 class="sec" style="margin-top:8px">Aus Fotos / Screenshots</h4>
+      <div class="note" style="margin-top:0;margin-bottom:10px">1–3 Bilder, z. B. von Instagram, TikTok oder Facebook. Die App liest den Text heraus; Doppeltes aus mehreren Bildern wird entfernt. Beim ersten Mal lädt sie dafür kurz eine Texterkennung (Internet nötig).</div>
+      <input type="file" id="iphoto" accept="image/*" multiple hidden>
+      <button class="btn" id="iphotobtn">Fotos auswählen</button>
+      <div class="status" id="istatp"></div>
+
+      <h4 class="sec">Rezept von einer Website</h4>
       <div class="field">
         <label>Adresse der Rezeptseite</label>
         <input type="url" id="iurl" placeholder="https://…" autocapitalize="off" autocorrect="off">
@@ -1198,6 +1281,21 @@ function viewImport(){
   $('#imanual').onclick = ()=>openEditor({
     title:'', image:'', baseServings:4, ingredients:[], steps:[], source:'', site:'', tags:[]
   }, true);
+  $('#iphotobtn').onclick = ()=>$('#iphoto').click();
+  $('#iphoto').onchange = async e=>{
+    const files=[...e.target.files].slice(0,5); if(!files.length) return;
+    const st=$('#istatp'); st.className='status on';
+    try{
+      st.innerHTML='<span class="spin"></span>Texterkennung wird vorbereitet…';
+      const texts = await ocrImages(files,(i,n)=>{ st.innerHTML='<span class="spin"></span>Bild '+i+' von '+n+' wird gelesen…'; });
+      const merged = mergeOcrLines(texts);
+      if(!merged.length) throw new Error('Auf den Bildern wurde kein Text erkannt. Versuch es mit einem schärferen Screenshot.');
+      const rec = parseRawText(merged.join('\n'));
+      st.className='status on ok'; st.textContent='Text erkannt — bitte prüfen und ergänzen.';
+      openEditor(rec, true);
+    }catch(err){ st.className='status on err'; st.textContent=err.message; }
+    e.target.value='';
+  };
 }
 
 let picked = new Set();
