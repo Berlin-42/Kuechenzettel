@@ -312,7 +312,7 @@
 /* =========================================================================
    Küchenzettel — private Rezept-App. Alles läuft im Browser, offline.
    ========================================================================= */
-const APP_VERSION = 'v2.0 · Foto-Import · 08.11.2026';
+const APP_VERSION = 'v2.1 · Import robuster · 09.11.2026';
 
 /* ---------- 1. Speicher (IndexedDB, mit Notfall-Fallback) ---------- */
 const DB = (() => {
@@ -668,36 +668,74 @@ function fmtQty(i){
 }
 
 /* ---------- 6. Import: Seite holen + JSON-LD lesen ---------- */
+/* Weiterleitungsdienste. Für Bilder (PROXIES) nur Dienste, die die Datei roh durchreichen. */
 const PROXIES = [
   u=>'https://api.allorigins.win/raw?url='+encodeURIComponent(u),
-  u=>'https://corsproxy.io/?url='+encodeURIComponent(u),
-  u=>'https://api.codetabs.com/v1/proxy/?quest='+encodeURIComponent(u)
+  u=>'https://api.codetabs.com/v1/proxy/?quest='+encodeURIComponent(u),
+  u=>'https://corsproxy.io/?url='+encodeURIComponent(u)
 ];
-async function fetchPage(url){
-  let lastErr;
-  for(const p of PROXIES){
-    try{
-      const r = await fetch(p(url), {redirect:'follow'});
-      if(!r.ok) throw new Error('HTTP '+r.status);
-      const t = await r.text();
-      if(t && t.length>300) return t;
-      throw new Error('Leere Antwort');
-    }catch(e){ lastErr=e; }
-  }
-  throw new Error('Keine der Verbindungen hat funktioniert. '+(lastErr?lastErr.message:''));
+const PAGE_PROXIES = [
+  {name:'AllOrigins',      url:u=>'https://api.allorigins.win/raw?url='+encodeURIComponent(u)},
+  {name:'AllOrigins (JSON)',url:u=>'https://api.allorigins.win/get?url='+encodeURIComponent(u), json:'contents'},
+  {name:'CodeTabs',        url:u=>'https://api.codetabs.com/v1/proxy/?quest='+encodeURIComponent(u)},
+  {name:'corsproxy.io',    url:u=>'https://corsproxy.io/?url='+encodeURIComponent(u)},
+  {name:'cors.lol',        url:u=>'https://api.cors.lol/?url='+encodeURIComponent(u)}
+];
+async function fetchWithTimeout(u, ms){
+  const ctl = ('AbortController' in window) ? new AbortController() : null;
+  const t = ctl ? setTimeout(()=>ctl.abort(), ms) : null;
+  try{ return await fetch(u, {redirect:'follow', signal: ctl?ctl.signal:undefined}); }
+  finally{ if(t) clearTimeout(t); }
 }
-function flat(x, out=[]){
-  if(!x) return out;
-  if(Array.isArray(x)){ x.forEach(i=>flat(i,out)); return out; }
+/* Probiert alle Dienste nacheinander, bis einer eine Seite MIT Rezept liefert.
+   Gibt {rec, via} zurück oder wirft einen Fehler mit Protokoll je Dienst. */
+async function fetchRecipe(url, onTry){
+  const log=[];
+  for(const p of PAGE_PROXIES){
+    if(onTry) onTry(p.name);
+    try{
+      const r = await fetchWithTimeout(p.url(url), 15000);
+      if(!r.ok){ log.push(p.name+': gesperrt (HTTP '+r.status+')'); continue; }
+      let html = await r.text();
+      if(p.json){ try{ html = (JSON.parse(html)||{})[p.json]||''; }catch(e){ html=''; } }
+      if(!html || html.length<300){ log.push(p.name+': leere Antwort'); continue; }
+      const rec = extractRecipe(html, url);
+      if(rec) return {rec, via:p.name};
+      log.push(p.name+': Seite geladen ('+Math.round(html.length/1024)+' KB), aber ohne Rezeptdaten'+(/captcha|cloudflare|access denied|zugriff verweigert|bot/i.test(html.slice(0,5000))?' — vermutlich Bot-Sperre':''));
+    }catch(e){
+      log.push(p.name+': '+(e.name==='AbortError'?'keine Antwort (Zeitüberschreitung)':'nicht erreichbar'));
+    }
+  }
+  const err = new Error('Rezept konnte nicht geladen werden.');
+  err.log = log;
+  throw err;
+}
+async function fetchPage(url){   // für Kompatibilität: liefert nur das HTML des ersten Dienstes
+  for(const p of PAGE_PROXIES){
+    try{
+      const r = await fetchWithTimeout(p.url(url), 15000);
+      if(!r.ok) continue;
+      let t = await r.text();
+      if(p.json){ try{ t=(JSON.parse(t)||{})[p.json]||''; }catch(e){ t=''; } }
+      if(t && t.length>300) return t;
+    }catch(e){}
+  }
+  throw new Error('Keine der Verbindungen hat funktioniert.');
+}
+/* Sucht Rezept-Objekte überall im JSON-LD (auch in mainEntity, @graph, verschachtelt) */
+function flat(x, out=[], depth=0){
+  if(!x || depth>8) return out;
+  if(Array.isArray(x)){ x.forEach(i=>flat(i,out,depth+1)); return out; }
   if(typeof x==='object'){
     out.push(x);
-    if(x['@graph']) flat(x['@graph'], out);
+    for(const k in x){ const v=x[k]; if(v && typeof v==='object') flat(v,out,depth+1); }
   }
   return out;
 }
 function isRecipe(o){
   const t=o['@type'];
-  return t==='Recipe' || (Array.isArray(t)&&t.includes('Recipe'));
+  const is = s => typeof s==='string' && /(^|[:\/])Recipe$/i.test(s.trim());
+  return is(t) || (Array.isArray(t)&&t.some(is));
 }
 function textOf(v){
   if(!v) return '';
@@ -750,19 +788,49 @@ function yieldOf(v){
   const m = t.match(/\d+/);
   return m ? parseInt(m[0]) : 4;
 }
+/* Microdata (itemprop="recipeIngredient" …) in dasselbe Format wie JSON-LD übersetzen */
+function microdataRecipe(doc){
+  const scope = doc.querySelector('[itemtype*="schema.org/Recipe" i]');
+  const root = scope || doc;
+  const ings = [...root.querySelectorAll('[itemprop="recipeIngredient"],[itemprop="ingredients"]')]
+    .map(e=>e.textContent.replace(/\s+/g,' ').trim()).filter(Boolean);
+  if(!scope && !ings.length) return null;
+  const val = sel => { const e=root.querySelector(sel); if(!e) return ''; return e.getAttribute('content')||e.getAttribute('src')||e.getAttribute('href')||e.textContent.replace(/\s+/g,' ').trim(); };
+  let steps = [...root.querySelectorAll('[itemprop="recipeInstructions"]')];
+  let instr = [];
+  steps.forEach(e=>{
+    const inner = [...e.querySelectorAll('[itemprop="text"],li,p')];
+    if(inner.length) inner.forEach(x=>instr.push(x.textContent.replace(/\s+/g,' ').trim()));
+    else instr.push(e.textContent.replace(/\s+/g,' ').trim());
+  });
+  return {
+    '@type':'Recipe',
+    name: val('[itemprop="name"]'),
+    image: val('[itemprop="image"]'),
+    recipeYield: val('[itemprop="recipeYield"]'),
+    totalTime: val('[itemprop="totalTime"]'),
+    recipeIngredient: ings,
+    recipeInstructions: instr.filter(s=>s.length>2)
+  };
+}
 function extractRecipe(html, url){
   const doc = new DOMParser().parseFromString(html,'text/html');
-  const blocks = [...doc.querySelectorAll('script[type="application/ld+json"]')];
+  // auch type="application/ld+json; charset=utf-8" o. Ä. erkennen
+  const blocks = [...doc.querySelectorAll('script')].filter(s=>/ld\+json/i.test(s.getAttribute('type')||''));
   let rec=null;
   for(const b of blocks){
     let data;
-    try{ data = JSON.parse(b.textContent.trim()); }
+    const raw = b.textContent.trim().replace(/^<!\[CDATA\[|\]\]>$/g,'');
+    try{ data = JSON.parse(raw); }
     catch(e){
-      try{ data = JSON.parse(b.textContent.replace(/[\u0000-\u001F]+/g,' ')); }catch(e2){ continue; }
+      try{ data = JSON.parse(raw.replace(/[\u0000-\u001F]+/g,' ')); }catch(e2){ continue; }
     }
-    const found = flat(data).find(isRecipe);
+    const cands = flat(data).filter(isRecipe);
+    // bei mehreren Treffern das Objekt mit Zutaten bevorzugen
+    const found = cands.find(o=>(o.recipeIngredient||o.ingredients||[]).length) || cands[0];
     if(found){ rec=found; break; }
   }
+  if(!rec) rec = microdataRecipe(doc);   // Ausweichlösung: ältere Microdata-Auszeichnung
   if(!rec) return null;
   const ingLines = (rec.recipeIngredient||rec.ingredients||[]).map(textOf).map(decodeEntities).filter(Boolean);
   let time = parseDur(rec.totalTime);
@@ -1246,10 +1314,7 @@ function viewImport(){
     if(!url) return;
     const st=$('#istat'); st.className='status on'; st.innerHTML='<span class="spin"></span>Seite wird geladen…';
     try{
-      const html = await fetchPage(url);
-      st.innerHTML='<span class="spin"></span>Rezept wird gelesen…';
-      const rec = extractRecipe(html, url);
-      if(!rec) throw new Error('Auf dieser Seite steckt kein maschinenlesbares Rezept. Nimm den Quelltext-Weg oder leg es von Hand an.');
+      const {rec} = await fetchRecipe(url, name=>{ st.innerHTML='<span class="spin"></span>Seite wird geladen · '+esc(name)+'…'; });
       st.innerHTML='<span class="spin"></span>Bild wird gespeichert…';
       rec.image = await imageToData(rec.image);
       if(rec.stepImages && rec.stepImages.length){
@@ -1260,7 +1325,10 @@ function viewImport(){
       rec.baseServings = rec.servings||4;
       openEditor(rec, true);
     }catch(e){
-      st.className='status on err'; st.textContent = e.message;
+      st.className='status on err';
+      st.innerHTML = '<b>'+esc(e.message)+'</b>'
+        + (e.log&&e.log.length ? '<div style="margin-top:6px;font-size:12px;line-height:1.5">'+e.log.map(esc).join('<br>')+'</div>' : '')
+        + '<div style="margin-top:8px;font-size:12px">Ausweg: Screenshots der Rezeptseite machen und oben über „Fotos auswählen“ einlesen.</div>';
     }
   };
   $('#igo2').onclick = async ()=>{
